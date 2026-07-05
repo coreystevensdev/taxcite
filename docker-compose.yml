@@ -22,8 +22,19 @@ services:
       LANGCHAIN_API_KEY: ${LANGCHAIN_API_KEY:-}
       LANGCHAIN_TRACING_V2: ${LANGCHAIN_TRACING_V2:-false}
       LANGCHAIN_PROJECT: ${LANGCHAIN_PROJECT:-taxcite}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4317}
+      OTEL_SERVICE_NAME: taxcite
     depends_on:
       - db
+      - jaeger
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.59
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
 
 volumes:
   pgdata:
