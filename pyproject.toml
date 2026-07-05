@@ -12,13 +12,35 @@ authors = [{ name = "Corey Stevens" }]
 dependencies = [
   "httpx>=0.27",
   "pdfplumber>=0.11",
+  "voyageai>=0.3",
+  "psycopg2-binary>=2.9",
+  "pgvector>=0.4",
+  "numpy>=1.26",
+  "langgraph>=0.4",
+  "langsmith>=0.1",
+  "anthropic>=0.50",
+  "rolling-cost-cap>=0.1",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = [
+  "pytest>=8",
+  "pytest-httpx>=0.34",
+  "ruff>=0.4",
+]
+eval = [
+  "ragas>=0.2",
+  "datasets>=2.20",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/taxcite"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
