@@ -1,5 +1,7 @@
 # TaxCite
 
+[github.com/coreystevensdev/taxcite](https://github.com/coreystevensdev/taxcite)
+
 Agentic RAG system that answers U.S. tax questions with page-level citations from IRS publications. 28 tests (pytest). Ragas eval harness for faithfulness, answer relevancy, and context precision.
 
 ## Problem
@@ -35,13 +37,13 @@ The LangGraph state machine separates retrieval from generation: the `retrieve` 
 
 ## Eval Scores
 
-Ragas evaluation over 5 questions from the eval dataset after ingesting all 14 publications.
+Ragas evaluation over 5 questions after ingesting all 14 IRS publications. Run locally with `python -m taxcite eval`.
 
 | Metric | Score |
 |---|---|
-| Faithfulness | TBD (run `python -m taxcite eval` after ingestion) |
-| Answer Relevancy | TBD |
-| Context Precision | TBD |
+| Faithfulness | pending first ingest run |
+| Answer Relevancy | pending first ingest run |
+| Context Precision | pending first ingest run |
 
 Scoring uses Ragas with OpenAI as the judge LLM (`OPENAI_API_KEY`). The agent itself uses Anthropic + Voyage AI.
 
