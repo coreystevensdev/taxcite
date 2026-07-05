@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "taxcite"
+version = "0.1.0"
+description = "Agentic RAG over IRS publications with a verifiable eval harness"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "Corey Stevens" }]
+dependencies = [
+  "httpx>=0.27",
+  "pdfplumber>=0.11",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/taxcite"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

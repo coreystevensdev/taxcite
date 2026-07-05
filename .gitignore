@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Corpus and derived data (fetched on demand, never committed)
+data/
+
+# Local-only AI-development scaffolding
+_bmad-output/
+_bmad/
+*_explained.md
+CLAUDE.md
+AGENTS.md
+
+# OS
+.DS_Store
