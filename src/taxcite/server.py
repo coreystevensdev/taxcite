@@ -14,6 +14,31 @@ from pydantic import BaseModel, Field
 from taxcite.agent import AgentState, build_graph
 
 
+def _configure_telemetry(app: FastAPI) -> None:
+    """Wire OpenTelemetry OTLP tracing when OTEL_EXPORTER_OTLP_ENDPOINT is set.
+
+    Traces are sent to a local Jaeger all-in-one instance by default.
+    Set OTEL_EXPORTER_OTLP_ENDPOINT to override (e.g. a hosted collector).
+    When the env var is absent, OTEL is a no-op and startup is unaffected.
+    """
+    endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+    if not endpoint:
+        return
+
+    from opentelemetry import trace
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+    resource = Resource.create({"service.name": os.getenv("OTEL_SERVICE_NAME", "taxcite")})
+    provider = TracerProvider(resource=resource)
+    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint)))
+    trace.set_tracer_provider(provider)
+    FastAPIInstrumentor.instrument_app(app)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Idempotent migration: safe to run on every cold start.
@@ -28,6 +53,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="TaxCite", version="0.1.0", lifespan=lifespan)
+_configure_telemetry(app)
 
 # MemorySaver enables HITL interrupt/resume across requests (per-process).
 # In a multi-replica deployment replace with PostgresSaver backed by the same DB.
