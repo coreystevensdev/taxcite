@@ -1,9 +1,10 @@
-"""CLI for corpus operations: python -m taxcite ingest p501 [p590a ...]"""
+"""CLI: python -m taxcite [ingest|eval|serve]"""
 
 from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from taxcite.chunk import chunk_pages
 from taxcite.fetch import fetch_publication
@@ -25,15 +26,43 @@ def cmd_ingest(pub_ids: list[str]) -> int:
     return 0
 
 
+def cmd_eval(dataset: str, out: str) -> int:
+    from taxcite.eval_harness import run_eval
+
+    run_eval(dataset_path=Path(dataset), report_path=Path(out))
+    return 0
+
+
+def cmd_serve(host: str, port: int) -> int:
+    import uvicorn
+
+    uvicorn.run("taxcite.server:app", host=host, port=port, reload=False)
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="taxcite")
     sub = parser.add_subparsers(dest="command", required=True)
-    ingest = sub.add_parser("ingest", help="fetch, parse, and chunk publications")
-    ingest.add_argument("pubs", nargs="*", help="pub ids (default: whole corpus)")
+
+    ingest_p = sub.add_parser("ingest", help="fetch, parse, chunk, and embed publications")
+    ingest_p.add_argument("pubs", nargs="*", help="pub ids (default: whole corpus)")
+
+    eval_p = sub.add_parser("eval", help="run Ragas eval harness and write report")
+    eval_p.add_argument("--dataset", default="eval/dataset.jsonl")
+    eval_p.add_argument("--out", default="eval/report.json")
+
+    serve_p = sub.add_parser("serve", help="start the FastAPI server")
+    serve_p.add_argument("--host", default="0.0.0.0")
+    serve_p.add_argument("--port", type=int, default=8000)
+
     args = parser.parse_args()
 
     if args.command == "ingest":
         return cmd_ingest(args.pubs)
+    if args.command == "eval":
+        return cmd_eval(args.dataset, args.out)
+    if args.command == "serve":
+        return cmd_serve(args.host, args.port)
     return 1
 
 
