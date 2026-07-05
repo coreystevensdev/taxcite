@@ -1,12 +1,29 @@
 """FastAPI server exposing the TaxCite agent over HTTP."""
 from __future__ import annotations
 
+import os
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from taxcite.agent import AgentState, build_graph
 
-app = FastAPI(title="TaxCite", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Idempotent migration: safe to run on every cold start.
+    if os.getenv("DATABASE_URL"):
+        from taxcite import db
+        conn = db.get_connection()
+        try:
+            db.run_migration(conn)
+        finally:
+            conn.close()
+    yield
+
+
+app = FastAPI(title="TaxCite", version="0.1.0", lifespan=lifespan)
 
 # Compiled once at import time; shared across requests (stateless graph).
 _graph = build_graph()

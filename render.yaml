@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: taxcite-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -e ".[eval]"
+    startCommand: python -m taxcite serve --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: taxcite-db
+          property: connectionString
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: VOYAGE_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-4-6
+      - key: PYTHON_VERSION
+        value: "3.12.0"
+
+databases:
+  - name: taxcite-db
+    databaseName: taxcite
+    user: taxcite
+    plan: free
+    postgresMajorVersion: 16
