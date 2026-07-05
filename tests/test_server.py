@@ -15,9 +15,25 @@ _BASE_STATE = {
 }
 
 
-def _mock_graph(answer: str = "", citations: list | None = None) -> MagicMock:
+def _mock_graph(
+    answer: str = "",
+    citations: list | None = None,
+    interrupted: bool = False,
+    chunks: list | None = None,
+) -> MagicMock:
+    """Build a mock _graph that mimics LangGraph's invoke/get_state API."""
     mg = MagicMock()
-    mg.invoke.return_value = {**_BASE_STATE, "answer": answer, "citations": citations or []}
+    mg.invoke.return_value = None  # return value unused; server reads via get_state
+
+    snapshot = MagicMock()
+    if interrupted:
+        snapshot.next = ("human_review",)
+        snapshot.values = {**_BASE_STATE, "chunks": chunks or []}
+    else:
+        snapshot.next = ()
+        snapshot.values = {**_BASE_STATE, "answer": answer, "citations": citations or []}
+
+    mg.get_state.return_value = snapshot
     return mg
 
 
@@ -30,7 +46,7 @@ class TestHealth:
 
 
 class TestAsk:
-    def test_returns_answer_and_citations(self):
+    def test_returns_complete_answer_and_citations(self):
         citations = [{"pub_id": "p17", "first_page": 3, "last_page": 4}]
         mock = _mock_graph("Yes, it is deductible.", citations)
         with patch("taxcite.server._graph", mock):
@@ -39,8 +55,25 @@ class TestAsk:
 
         assert resp.status_code == 200
         body = resp.json()
+        assert body["status"] == "complete"
         assert body["answer"] == "Yes, it is deductible."
         assert body["citations"] == citations
+
+    def test_returns_awaiting_review_when_graph_interrupted(self):
+        from taxcite.chunk import Chunk
+
+        fake_chunk = Chunk(pub_id="p936", ordinal=0, first_page=1, last_page=2, text="Mortgage interest rules.")
+        mock = _mock_graph(interrupted=True, chunks=[fake_chunk])
+        with patch("taxcite.server._graph", mock):
+            client = TestClient(app)
+            resp = client.post("/ask", json={"question": "Can I deduct interest?"})
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "awaiting_review"
+        assert "thread_id" in body
+        assert len(body["chunks_preview"]) == 1
+        assert body["chunks_preview"][0]["pub_id"] == "p936"
 
     def test_empty_question_returns_422(self):
         client = TestClient(app)
@@ -60,3 +93,45 @@ class TestAsk:
             resp = client.post("/ask", json={"question": "test question"})
 
         assert resp.status_code == 500
+
+
+class TestAskResume:
+    def test_resume_returns_final_answer(self):
+        mock = _mock_graph("Deductible under Pub 936.", [])
+        # First get_state call: graph is interrupted; second: completed.
+        completed_snapshot = MagicMock()
+        completed_snapshot.next = ()
+        completed_snapshot.values = {**_BASE_STATE, "answer": "Deductible under Pub 936.", "citations": []}
+
+        interrupted_snapshot = MagicMock()
+        interrupted_snapshot.next = ("human_review",)
+        interrupted_snapshot.values = _BASE_STATE
+
+        mock.get_state.side_effect = [interrupted_snapshot, completed_snapshot]
+
+        with patch("taxcite.server._graph", mock):
+            client = TestClient(app)
+            resp = client.post(
+                "/ask/resume",
+                json={"thread_id": "abc-123", "approved": True},
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "complete"
+        assert body["answer"] == "Deductible under Pub 936."
+
+    def test_resume_unknown_thread_id_returns_404(self):
+        mock = MagicMock()
+        not_found_snapshot = MagicMock()
+        not_found_snapshot.next = ()  # no interrupted run
+        mock.get_state.return_value = not_found_snapshot
+
+        with patch("taxcite.server._graph", mock):
+            client = TestClient(app)
+            resp = client.post(
+                "/ask/resume",
+                json={"thread_id": "does-not-exist", "approved": True},
+            )
+
+        assert resp.status_code == 404

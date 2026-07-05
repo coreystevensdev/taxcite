@@ -2,7 +2,7 @@
 
 [github.com/coreystevensdev/taxcite](https://github.com/coreystevensdev/taxcite)
 
-Agentic RAG system that answers U.S. tax questions with page-level citations from IRS publications. 28 tests (pytest). Ragas eval harness for faithfulness, answer relevancy, and context precision.
+Agentic RAG system that answers U.S. tax questions with page-level citations from IRS publications. 38 tests (pytest). Ragas eval harness for faithfulness, answer relevancy, and context precision.
 
 ## Problem
 
@@ -15,25 +15,27 @@ A retrieval-augmented generation pipeline that ingests 14 IRS publications into 
 ## Architecture
 
 ```
-User question
+POST /ask
      |
      v
-[embed_query]  (voyage-3.5-lite, 1024-dim, query input_type)
-     |
-     v
-[pgvector cosine search]  top-8 chunks from 14 IRS pubs
+[retrieve]  embed query (voyage-3.5-lite) + pgvector cosine search, top-8 chunks
      |
      +-- empty? --> "No relevant excerpts found"
      |
      v
-[Claude claude-sonnet-4-6]  system: "answer from excerpts only, cite pages"
-  forced tool call: submit_answer(answer, citations)
+[human_review]  interrupt()  <-- HITL checkpoint
+     |                            graph pauses; client receives thread_id + chunks_preview
+     |                            client calls POST /ask/resume {thread_id, approved}
+     +-- rejected? --> "Review cancelled"
      |
      v
-{answer, citations: [{pub_id, first_page, last_page}]}
+[generate_answer]  Claude claude-sonnet-4-6, forced submit_answer tool call
+     |
+     v
+{status: "complete", answer, citations: [{pub_id, first_page, last_page}]}
 ```
 
-The LangGraph state machine separates retrieval from generation: the `retrieve` node embeds and searches, a conditional edge routes to `no_documents` when the corpus has nothing, and `generate_answer` forces a structured tool call so citations are always machine-readable rather than extracted from prose.
+The LangGraph state machine has four nodes with two conditional edges. `retrieve` routes to `human_review` when chunks are found, or `no_documents` when the corpus has nothing. `human_review` calls `interrupt()` to pause the graph for human approval of the retrieved excerpts -- the graph saves its checkpoint to `MemorySaver`, the server returns an intermediate response with the chunks preview, and `POST /ask/resume` resumes from the saved checkpoint with the human's decision. `generate_answer` forces a structured tool call so citations are always machine-readable rather than extracted from prose.
 
 ## Eval Scores
 
@@ -91,6 +93,30 @@ cat eval/report.json
 
 Requires `OPENAI_API_KEY` for the Ragas judge LLM.
 
+## HITL Interrupt/Resume
+
+The API supports human-in-the-loop review before the generation call. When enabled (always on by default), `POST /ask` may return an intermediate response:
+
+```json
+{
+  "status": "awaiting_review",
+  "thread_id": "uuid",
+  "chunks_preview": [
+    {"pub_id": "p936", "pages": "pp.12-14", "excerpt": "Mortgage interest on your main home..."}
+  ]
+}
+```
+
+Call `POST /ask/resume` to continue:
+
+```bash
+curl -X POST http://localhost:8000/ask/resume \
+  -H "Content-Type: application/json" \
+  -d '{"thread_id": "<uuid>", "approved": true}'
+```
+
+The graph resumes from the `MemorySaver` checkpoint and completes generation. Pass `"approved": false` to cancel without a Claude call.
+
 ## LangSmith Tracing
 
 Every `graph.invoke()` call is traced to LangSmith when the following env vars are set:
@@ -101,13 +127,13 @@ export LANGCHAIN_TRACING_V2=true
 export LANGCHAIN_PROJECT=taxcite
 ```
 
-Traces show: LangGraph state transitions (retrieve -> generate_answer), the raw Anthropic messages payload, token counts and cost per node, and end-to-end latency. The `@traceable` decorator on `generate_answer` creates a nested LLM span inside the graph run, so both the retrieval hop and the generation call are visible in the same trace tree.
+Traces show: LangGraph state transitions (retrieve -> human_review -> generate_answer), the HITL interrupt point and resume event, the raw Anthropic messages payload, token counts and cost per node, and end-to-end latency across both the initial invoke and the resume call. The `@traceable` decorator on `generate_answer` creates a nested LLM span inside the graph run, so both the retrieval hop and the generation call are visible in the same trace tree.
 
 ## Known Limitations
 
 - Context window: retrieves top-8 chunks per question; multi-part questions spanning many publications may miss relevant context.
 - No OCR: `pdfplumber` extracts digital text only; scanned pages (some older IRS pubs) are silently skipped.
-- Per-instance rate limiting: the in-memory rate limiter is not shared across API replicas; horizontal scaling requires a shared store.
+- Per-instance state: both the rate limiter and the HITL `MemorySaver` checkpointer are in-process. Interrupted threads are lost on restart and not shared across replicas; replace `MemorySaver` with `PostgresSaver` for production durability.
 - Ragas judge uses OpenAI by default: evaluation cost is separate from inference cost and requires an additional API key.
 - Publications are ingested as static snapshots; re-ingest when IRS revises a publication (annual cycle for most).
 

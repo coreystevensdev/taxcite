@@ -9,8 +9,11 @@ import pytest
 from taxcite.agent import (
     AgentState,
     _route_after_retrieve,
+    _route_after_review,
     generate_answer,
+    human_review,
     no_documents,
+    rejected,
     retrieve,
 )
 from taxcite.chunk import Chunk
@@ -60,14 +63,54 @@ def test_retrieve_closes_connection_on_search_error():
     mock_conn.close.assert_called_once()
 
 
-# ---- routing ----
+# ---- routing after retrieve ----
 
-def test_route_returns_generate_when_chunks_present():
-    assert _route_after_retrieve(_state_with_chunks()) == "generate_answer"
+def test_route_returns_human_review_when_chunks_present():
+    assert _route_after_retrieve(_state_with_chunks()) == "human_review"
 
 
 def test_route_returns_no_documents_when_chunks_empty():
     assert _route_after_retrieve(_EMPTY_STATE) == "no_documents"
+
+
+# ---- routing after human_review ----
+
+def test_route_after_review_approved():
+    state = {**_state_with_chunks(), "human_approved": True}
+    assert _route_after_review(state) == "generate_answer"
+
+
+def test_route_after_review_rejected():
+    state = {**_state_with_chunks(), "human_approved": False}
+    assert _route_after_review(state) == "rejected"
+
+
+def test_route_after_review_none_treated_as_rejected():
+    # human_approved absent or None routes to rejected
+    assert _route_after_review(_state_with_chunks()) == "rejected"
+
+
+# ---- human_review node ----
+
+def test_human_review_approved_sets_state():
+    with patch("taxcite.agent.interrupt", return_value=True):
+        result = human_review(_state_with_chunks())
+    assert result == {"human_approved": True}
+
+
+def test_human_review_rejected_sets_state():
+    with patch("taxcite.agent.interrupt", return_value=False):
+        result = human_review(_state_with_chunks())
+    assert result == {"human_approved": False}
+
+
+def test_human_review_passes_chunks_preview_to_interrupt():
+    with patch("taxcite.agent.interrupt", return_value=True) as mock_interrupt:
+        human_review(_state_with_chunks())
+
+    call_args = mock_interrupt.call_args[0][0]
+    assert "chunks_preview" in call_args
+    assert call_args["chunks_preview"][0]["pub_id"] == "p17"
 
 
 # ---- generate_answer node ----
@@ -124,4 +167,13 @@ def test_no_documents_returns_fallback_with_empty_citations():
     result = no_documents(_EMPTY_STATE)
 
     assert "No relevant" in result["answer"]
+    assert result["citations"] == []
+
+
+# ---- rejected node ----
+
+def test_rejected_returns_cancellation_message():
+    result = rejected(_EMPTY_STATE)
+
+    assert "cancelled" in result["answer"].lower()
     assert result["citations"] == []

@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import os
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 import anthropic
 from langsmith import traceable
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
+from langgraph.types import interrupt
 
 from taxcite import db, embed
 from taxcite.chunk import Chunk
@@ -54,6 +56,7 @@ class AgentState(TypedDict):
     chunks: list[Chunk]
     answer: str
     citations: list[dict]  # {pub_id, first_page, last_page}
+    human_approved: NotRequired[bool | None]
 
 
 def retrieve(state: AgentState) -> dict:
@@ -64,6 +67,30 @@ def retrieve(state: AgentState) -> dict:
     finally:
         conn.close()
     return {"chunks": chunks}
+
+
+def human_review(state: AgentState) -> dict:
+    """Pause and wait for a human to approve the retrieved excerpts.
+
+    The caller resumes the graph by passing approved=True|False via
+    Command(resume=<bool>) to graph.invoke(). This is the HITL checkpoint
+    before the expensive Claude generation call.
+    """
+    chunks_preview = [
+        {
+            "pub_id": c.pub_id,
+            "pages": f"pp.{c.first_page}-{c.last_page}" if c.first_page != c.last_page else f"p.{c.first_page}",
+            "excerpt": c.text[:300],
+        }
+        for c in state["chunks"]
+    ]
+    approved = interrupt(
+        {
+            "message": "Review the retrieved IRS excerpts before generating the answer.",
+            "chunks_preview": chunks_preview,
+        }
+    )
+    return {"human_approved": bool(approved)}
 
 
 @traceable(name="generate_answer", run_type="llm")
@@ -115,27 +142,49 @@ def no_documents(state: AgentState) -> dict:  # noqa: ARG001
     }
 
 
+def rejected(state: AgentState) -> dict:  # noqa: ARG001
+    return {"answer": "Review cancelled. The retrieved excerpts were not approved.", "citations": []}
+
+
 def _route_after_retrieve(state: AgentState) -> str:
-    return "generate_answer" if state["chunks"] else "no_documents"
+    return "human_review" if state["chunks"] else "no_documents"
 
 
-def build_graph():
-    """Compile and return the LangGraph agent."""
+def _route_after_review(state: AgentState) -> str:
+    return "generate_answer" if state.get("human_approved") else "rejected"
+
+
+def build_graph(checkpointer=None):
+    """Compile and return the LangGraph agent.
+
+    Pass a MemorySaver (or PostgresSaver) checkpointer to enable HITL
+    interrupt/resume. Without a checkpointer the graph runs synchronously
+    with no interrupt support.
+    """
     graph: StateGraph = StateGraph(AgentState)
 
     graph.add_node("retrieve", retrieve)
+    graph.add_node("human_review", human_review)
     graph.add_node("generate_answer", generate_answer)
     graph.add_node("no_documents", no_documents)
+    graph.add_node("rejected", rejected)
 
     graph.set_entry_point("retrieve")
 
     graph.add_conditional_edges(
         "retrieve",
         _route_after_retrieve,
-        {"generate_answer": "generate_answer", "no_documents": "no_documents"},
+        {"human_review": "human_review", "no_documents": "no_documents"},
+    )
+
+    graph.add_conditional_edges(
+        "human_review",
+        _route_after_review,
+        {"generate_answer": "generate_answer", "rejected": "rejected"},
     )
 
     graph.add_edge("generate_answer", END)
     graph.add_edge("no_documents", END)
+    graph.add_edge("rejected", END)
 
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)
