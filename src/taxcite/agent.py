@@ -5,6 +5,7 @@ import os
 from typing import TypedDict
 
 import anthropic
+from langsmith import traceable
 from langgraph.graph import END, StateGraph
 
 from taxcite import db, embed
@@ -65,6 +66,7 @@ def retrieve(state: AgentState) -> dict:
     return {"chunks": chunks}
 
 
+@traceable(name="generate_answer", run_type="llm")
 def generate_answer(state: AgentState) -> dict:
     context_blocks = []
     for i, chunk in enumerate(state["chunks"], 1):

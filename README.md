@@ -56,6 +56,7 @@ Scoring uses Ragas with OpenAI as the judge LLM (`OPENAI_API_KEY`). The agent it
 | Agent | LangGraph StateGraph | Explicit state machine separates retrieval and generation; conditional routing is auditable |
 | Generation | Anthropic claude-sonnet-4-6 | Forced tool call enforces structured citation output |
 | Evaluation | Ragas faithfulness + answer_relevancy + context_precision | Standard RAG eval metrics; reproducible with `python -m taxcite eval` |
+| Observability | LangSmith traces via `@traceable` + LangGraph auto-instrumentation | Token costs, latency, state transitions, and raw Anthropic messages in one trace tree |
 | API | FastAPI + uvicorn | Typed request/response schemas; easy local testing with TestClient |
 | PDF parsing | pdfplumber | Page-accurate text extraction with page-number tracking for citations |
 | Chunking | Custom overlap chunker | 1600-char target, one-paragraph overlap, page range tracking per chunk |
@@ -89,6 +90,18 @@ cat eval/report.json
 ```
 
 Requires `OPENAI_API_KEY` for the Ragas judge LLM.
+
+## LangSmith Tracing
+
+Every `graph.invoke()` call is traced to LangSmith when the following env vars are set:
+
+```bash
+export LANGCHAIN_API_KEY=lsv2_pt_...   # from smith.langchain.com
+export LANGCHAIN_TRACING_V2=true
+export LANGCHAIN_PROJECT=taxcite
+```
+
+Traces show: LangGraph state transitions (retrieve -> generate_answer), the raw Anthropic messages payload, token counts and cost per node, and end-to-end latency. The `@traceable` decorator on `generate_answer` creates a nested LLM span inside the graph run, so both the retrieval hop and the generation call are visible in the same trace tree.
 
 ## Known Limitations
 
