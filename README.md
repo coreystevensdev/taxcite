@@ -5,7 +5,7 @@
 
 [github.com/coreystevensdev/taxcite](https://github.com/coreystevensdev/taxcite)
 
-Agentic RAG system that answers U.S. tax questions with page-level citations from IRS publications. 38 tests (pytest). Ragas eval harness for faithfulness, answer relevancy, and context precision.
+Agentic RAG system that answers U.S. tax questions with page-level citations from IRS publications. 41 tests (pytest). Ragas eval harness for faithfulness, answer relevancy, and context precision.
 
 ## Problem
 
