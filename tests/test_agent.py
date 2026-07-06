@@ -123,6 +123,7 @@ def _make_tool_response(answer: str, citations: list[dict]) -> MagicMock:
     )
     response = MagicMock()
     response.content = [tool_block]
+    response.usage = SimpleNamespace(input_tokens=200, output_tokens=100)
     return response
 
 
@@ -159,6 +160,28 @@ def test_generate_answer_formats_multi_page_citation_correctly():
         user_content = call_kwargs[1]["messages"][0]["content"]
 
     assert "pp.5-6" in user_content
+
+
+def test_generate_answer_raises_cost_budget_exceeded_when_cap_trips():
+    from taxcite import cost
+    from taxcite.cost import CostBudgetExceeded
+
+    mock_response = _make_tool_response("answer", [])
+
+    tripped = MagicMock()
+    tripped.allowed = False
+    tripped.trip = "monthly-budget"
+    tripped.observed = 0.005
+    tripped.monthly_spend = 10.01
+
+    with (
+        patch("taxcite.agent.anthropic.Anthropic") as MockClient,
+        patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}),
+        patch.object(cost.cap, "evaluate", return_value=tripped),
+    ):
+        MockClient.return_value.messages.create.return_value = mock_response
+        with pytest.raises(CostBudgetExceeded, match="monthly-budget"):
+            generate_answer(_state_with_chunks())
 
 
 # ---- no_documents node ----

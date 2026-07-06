@@ -10,7 +10,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 from langgraph.types import interrupt
 
-from taxcite import db, embed
+from taxcite import cost, db, embed
 from taxcite.chunk import Chunk
 
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
@@ -119,6 +119,17 @@ def generate_answer(state: AgentState) -> dict:
         tools=[_SUBMIT_ANSWER_TOOL],
         tool_choice={"type": "tool", "name": "submit_answer"},
     )
+
+    call_cost = (
+        response.usage.input_tokens * cost.ANTHROPIC_INPUT_COST_PER_TOKEN
+        + response.usage.output_tokens * cost.ANTHROPIC_OUTPUT_COST_PER_TOKEN
+    )
+    decision = cost.cap.evaluate(call_cost)
+    if not decision.allowed:
+        raise cost.CostBudgetExceeded(
+            f"generation blocked by cost cap ({decision.trip}): "
+            f"${decision.observed:.6f} observed, ${decision.monthly_spend:.4f} monthly"
+        )
 
     for block in response.content:
         if getattr(block, "type", None) == "tool_use" and block.name == "submit_answer":

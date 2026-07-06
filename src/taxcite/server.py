@@ -14,6 +14,7 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 from taxcite.agent import AgentState, build_graph
+from taxcite.cost import CostBudgetExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +178,8 @@ def ask(req: AskRequest) -> AskCompleteResponse | AskAwaitingResponse:
     }
     try:
         _graph.invoke(initial, config=config)
+    except CostBudgetExceeded as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Graph execution failed. Check server logs.") from exc
 
@@ -215,6 +218,8 @@ def ask_resume(req: ResumeRequest) -> AskCompleteResponse:
 
     try:
         _graph.invoke(Command(resume=req.approved), config=config)
+    except CostBudgetExceeded as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Graph resume failed. Check server logs.") from exc
 

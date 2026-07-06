@@ -94,6 +94,17 @@ class TestAsk:
 
         assert resp.status_code == 500
 
+    def test_cost_budget_exceeded_returns_503(self):
+        from taxcite.cost import CostBudgetExceeded
+
+        mock = MagicMock()
+        mock.invoke.side_effect = CostBudgetExceeded("monthly-budget tripped")
+        with patch("taxcite.server._graph", mock):
+            client = TestClient(app)
+            resp = client.post("/ask", json={"question": "test question"})
+
+        assert resp.status_code == 503
+
 
 class TestAskResume:
     def test_resume_returns_final_answer(self):

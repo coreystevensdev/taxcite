@@ -6,6 +6,8 @@ import os
 import voyageai
 from langsmith import traceable
 
+from taxcite import cost
+
 EMBED_MODEL = "voyage-3.5-lite"
 EMBED_DIMS = 1024
 BATCH_SIZE = 128
@@ -20,6 +22,15 @@ def _get_client() -> voyageai.Client:
     return _client
 
 
+def _guard(total_tokens: int) -> None:
+    decision = cost.cap.evaluate(total_tokens * cost.VOYAGE_COST_PER_TOKEN)
+    if not decision.allowed:
+        raise cost.CostBudgetExceeded(
+            f"embedding blocked by cost cap ({decision.trip}): "
+            f"${decision.observed:.6f} observed, ${decision.monthly_spend:.4f} monthly"
+        )
+
+
 def embed_texts(texts: list[str]) -> list[list[float]]:
     """Embed document strings in batches of 128. Returns one 1024-dim vector per text."""
     client = _get_client()
@@ -27,6 +38,7 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     for i in range(0, len(texts), BATCH_SIZE):
         batch = texts[i : i + BATCH_SIZE]
         response = client.embed(batch, model=EMBED_MODEL, input_type="document")
+        _guard(response.total_tokens)
         result.extend(response.embeddings)
     return result
 
@@ -36,4 +48,5 @@ def embed_query(text: str) -> list[float]:
     """Embed a single query string."""
     client = _get_client()
     response = client.embed([text], model=EMBED_MODEL, input_type="query")
+    _guard(response.total_tokens)
     return response.embeddings[0]
