@@ -17,25 +17,14 @@ A retrieval-augmented generation pipeline that ingests 14 IRS publications into 
 
 ## Architecture
 
-```
-POST /ask
-     |
-     v
-[retrieve]  embed query (voyage-3.5-lite) + pgvector cosine search, top-8 chunks
-     |
-     +-- empty? --> "No relevant excerpts found"
-     |
-     v
-[human_review]  interrupt()  <-- HITL checkpoint
-     |                            graph pauses; client receives thread_id + chunks_preview
-     |                            client calls POST /ask/resume {thread_id, approved}
-     +-- rejected? --> "Review cancelled"
-     |
-     v
-[generate_answer]  Claude claude-sonnet-4-6, forced submit_answer tool call
-     |
-     v
-{status: "complete", answer, citations: [{pub_id, first_page, last_page}]}
+```mermaid
+flowchart TD
+    A["POST /ask"] --> B["retrieve\nembed query via Voyage AI voyage-3.5-lite\npgvector cosine search, top-8 chunks"]
+    B -->|empty| C["No relevant excerpts found"]
+    B -->|chunks found| D["human_review\ninterrupt(): graph pauses\nclient receives thread_id + chunks_preview"]
+    D -->|approved: false| E["Review cancelled"]
+    D -->|approved: true| F["generate_answer\nClaude claude-sonnet-4-6\nforced submit_answer tool call"]
+    F --> G["{status: complete, answer,\ncitations: [{pub_id, first_page, last_page}]}"]
 ```
 
 The LangGraph state machine has four nodes with two conditional edges. `retrieve` routes to `human_review` when chunks are found, or `no_documents` when the corpus has nothing. `human_review` calls `interrupt()` to pause the graph for human approval of the retrieved excerpts; the graph saves its checkpoint to `MemorySaver`, the server returns an intermediate response with the chunks preview, and `POST /ask/resume` resumes from the saved checkpoint with the human's decision. `generate_answer` forces a structured tool call so citations are always machine-readable rather than extracted from prose.
