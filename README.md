@@ -40,17 +40,16 @@ POST /ask
 
 The LangGraph state machine has four nodes with two conditional edges. `retrieve` routes to `human_review` when chunks are found, or `no_documents` when the corpus has nothing. `human_review` calls `interrupt()` to pause the graph for human approval of the retrieved excerpts; the graph saves its checkpoint to `MemorySaver`, the server returns an intermediate response with the chunks preview, and `POST /ask/resume` resumes from the saved checkpoint with the human's decision. `generate_answer` forces a structured tool call so citations are always machine-readable rather than extracted from prose.
 
-## Eval Scores
+## Eval Harness
 
-Ragas evaluation over 5 questions against all 14 ingested IRS publications. Scores are posted here after each deployment run.
+Ragas evaluation over 5 questions across all 14 ingested IRS publications, scoring faithfulness, answer relevancy, and context precision. Scoring uses Ragas with OpenAI as the judge LLM (`OPENAI_API_KEY`); the agent itself uses Anthropic + Voyage AI.
 
-| Metric | Score |
-|---|---|
-| Faithfulness | pending deployment run |
-| Answer Relevancy | pending deployment run |
-| Context Precision | pending deployment run |
+Run after ingestion:
 
-Scoring uses Ragas with OpenAI as the judge LLM (`OPENAI_API_KEY`). The agent itself uses Anthropic + Voyage AI. To reproduce locally: run `python -m taxcite ingest` first (ingests all 14 IRS publications, ~10 minutes), then `python -m taxcite eval`.
+```bash
+python -m taxcite eval --dataset eval/dataset.jsonl --out eval/report.json
+cat eval/report.json
+```
 
 ## Tech Stack
 
@@ -86,15 +85,6 @@ cp .env.example .env
 docker compose up -d
 docker compose exec api python -m taxcite ingest
 ```
-
-## Running the Eval
-
-```bash
-python -m taxcite eval --dataset eval/dataset.jsonl --out eval/report.json
-cat eval/report.json
-```
-
-Requires `OPENAI_API_KEY` for the Ragas judge LLM.
 
 ## HITL Interrupt/Resume
 
