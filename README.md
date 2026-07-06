@@ -1,6 +1,7 @@
 # TaxCite
 
 ![CI](https://github.com/coreystevensdev/taxcite/actions/workflows/tests.yml/badge.svg)
+![38 tests](https://img.shields.io/badge/tests-38-brightgreen)
 
 [github.com/coreystevensdev/taxcite](https://github.com/coreystevensdev/taxcite)
 
@@ -37,19 +38,19 @@ POST /ask
 {status: "complete", answer, citations: [{pub_id, first_page, last_page}]}
 ```
 
-The LangGraph state machine has four nodes with two conditional edges. `retrieve` routes to `human_review` when chunks are found, or `no_documents` when the corpus has nothing. `human_review` calls `interrupt()` to pause the graph for human approval of the retrieved excerpts -- the graph saves its checkpoint to `MemorySaver`, the server returns an intermediate response with the chunks preview, and `POST /ask/resume` resumes from the saved checkpoint with the human's decision. `generate_answer` forces a structured tool call so citations are always machine-readable rather than extracted from prose.
+The LangGraph state machine has four nodes with two conditional edges. `retrieve` routes to `human_review` when chunks are found, or `no_documents` when the corpus has nothing. `human_review` calls `interrupt()` to pause the graph for human approval of the retrieved excerpts; the graph saves its checkpoint to `MemorySaver`, the server returns an intermediate response with the chunks preview, and `POST /ask/resume` resumes from the saved checkpoint with the human's decision. `generate_answer` forces a structured tool call so citations are always machine-readable rather than extracted from prose.
 
 ## Eval Scores
 
-Ragas evaluation over 5 questions against all 14 ingested IRS publications.
+Ragas evaluation over 5 questions against all 14 ingested IRS publications. Scores are posted here after each deployment run.
 
 | Metric | Score |
 |---|---|
-| Faithfulness | run `python -m taxcite eval` after ingest |
-| Answer Relevancy | run `python -m taxcite eval` after ingest |
-| Context Precision | run `python -m taxcite eval` after ingest |
+| Faithfulness | pending deployment run |
+| Answer Relevancy | pending deployment run |
+| Context Precision | pending deployment run |
 
-Scoring uses Ragas with OpenAI as the judge LLM (`OPENAI_API_KEY`). The agent itself uses Anthropic + Voyage AI. Eval requires a populated pgvector database; run `python -m taxcite ingest` first (ingests all 14 IRS publications, takes ~10 minutes on first run).
+Scoring uses Ragas with OpenAI as the judge LLM (`OPENAI_API_KEY`). The agent itself uses Anthropic + Voyage AI. To reproduce locally: run `python -m taxcite ingest` first (ingests all 14 IRS publications, ~10 minutes), then `python -m taxcite eval`.
 
 ## Tech Stack
 
