@@ -41,15 +41,15 @@ The LangGraph state machine has four nodes with two conditional edges. `retrieve
 
 ## Eval Scores
 
-Ragas evaluation over 5 questions after ingesting all 14 IRS publications. Run locally with `python -m taxcite eval`.
+Ragas evaluation over 5 questions against all 14 ingested IRS publications.
 
 | Metric | Score |
 |---|---|
-| Faithfulness | pending first ingest run |
-| Answer Relevancy | pending first ingest run |
-| Context Precision | pending first ingest run |
+| Faithfulness | run `python -m taxcite eval` after ingest |
+| Answer Relevancy | run `python -m taxcite eval` after ingest |
+| Context Precision | run `python -m taxcite eval` after ingest |
 
-Scoring uses Ragas with OpenAI as the judge LLM (`OPENAI_API_KEY`). The agent itself uses Anthropic + Voyage AI.
+Scoring uses Ragas with OpenAI as the judge LLM (`OPENAI_API_KEY`). The agent itself uses Anthropic + Voyage AI. Eval requires a populated pgvector database; run `python -m taxcite ingest` first (ingests all 14 IRS publications, takes ~10 minutes on first run).
 
 ## Tech Stack
 
