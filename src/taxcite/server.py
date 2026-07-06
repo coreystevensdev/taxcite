@@ -116,7 +116,7 @@ def ask(req: AskRequest) -> AskCompleteResponse | AskAwaitingResponse:
     try:
         _graph.invoke(initial, config=config)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Graph execution failed. Check server logs.") from exc
 
     snapshot = _graph.get_state(config)
 
@@ -154,7 +154,7 @@ def ask_resume(req: ResumeRequest) -> AskCompleteResponse:
     try:
         _graph.invoke(Command(resume=req.approved), config=config)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Graph resume failed. Check server logs.") from exc
 
     values = _graph.get_state(config).values
     return AskCompleteResponse(
