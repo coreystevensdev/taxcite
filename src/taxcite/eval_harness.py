@@ -26,8 +26,14 @@ def _load_dataset(path: Path) -> list[dict]:
         return [json.loads(line) for line in f if line.strip()]
 
 
-def _run_agent_on_question(graph, question: str) -> tuple[str, list[str]]:
-    """Invoke the compiled LangGraph and return (answer, context_texts)."""
+def _run_agent_on_question(graph, question: str, config: dict) -> tuple[str, list[str]]:
+    """Invoke the compiled LangGraph and return (answer, context_texts).
+
+    Auto-approves the HITL interrupt so the eval runs end-to-end without
+    human input. Uses the same get_state / Command(resume=True) pattern as
+    the server's /ask + /ask/resume flow.
+    """
+    from langgraph.types import Command
     from taxcite.agent import AgentState
 
     initial: AgentState = {
@@ -36,9 +42,17 @@ def _run_agent_on_question(graph, question: str) -> tuple[str, list[str]]:
         "answer": "",
         "citations": [],
     }
-    final = graph.invoke(initial)
-    contexts = [c.text for c in final.get("chunks", [])]
-    return final["answer"], contexts
+    graph.invoke(initial, config=config)
+
+    snapshot = graph.get_state(config)
+    if snapshot.next:
+        # Paused at human_review: auto-approve for eval.
+        graph.invoke(Command(resume=True), config=config)
+        snapshot = graph.get_state(config)
+
+    values = snapshot.values
+    contexts = [c.text for c in values.get("chunks", [])]
+    return values.get("answer", ""), contexts
 
 
 def _score_with_ragas(records: list[dict]) -> dict:
@@ -61,14 +75,16 @@ def _score_with_ragas(records: list[dict]) -> dict:
 
 
 def run_eval(dataset_path: Path = DEFAULT_DATASET, report_path: Path = DEFAULT_REPORT) -> dict:
+    from langgraph.checkpoint.memory import MemorySaver
     from taxcite.agent import build_graph
 
     items = _load_dataset(dataset_path)
-    graph = build_graph()
+    graph = build_graph(checkpointer=MemorySaver())
 
     records = []
-    for item in items:
-        answer, contexts = _run_agent_on_question(graph, item["question"])
+    for i, item in enumerate(items):
+        config = {"configurable": {"thread_id": f"eval-{i}"}}
+        answer, contexts = _run_agent_on_question(graph, item["question"], config)
         records.append(
             {
                 "question": item["question"],
