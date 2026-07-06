@@ -120,7 +120,17 @@ export LANGCHAIN_TRACING_V2=true
 export LANGCHAIN_PROJECT=taxcite
 ```
 
-Traces show: LangGraph state transitions (retrieve -> human_review -> generate_answer), the HITL interrupt point and resume event, the raw Anthropic messages payload, token counts and cost per node, and end-to-end latency across both the initial invoke and the resume call. The `@traceable` decorator on `generate_answer` creates a nested LLM span inside the graph run, so both the retrieval hop and the generation call are visible in the same trace tree.
+The trace tree per request:
+
+```
+LangGraph run
+  ├─ retrieve              (node span, auto-instrumented by LangGraph)
+  │    └─ embed_query      (embedding span — Voyage AI latency + model)
+  ├─ human_review          (node span — shows interrupt payload)
+  └─ generate_answer       (llm span — Anthropic messages, token counts, cost)
+```
+
+Traces show: LangGraph state transitions (retrieve -> human_review -> generate_answer), the HITL interrupt point and resume event, the raw Anthropic messages payload, token counts and cost per node, Voyage AI embedding latency, and end-to-end latency across both the initial invoke and the resume call.
 
 ## Known Limitations
 

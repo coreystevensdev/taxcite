@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 
 import voyageai
+from langsmith import traceable
 
 EMBED_MODEL = "voyage-3.5-lite"
 EMBED_DIMS = 1024
@@ -30,6 +31,7 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     return result
 
 
+@traceable(name="embed_query", run_type="embedding")
 def embed_query(text: str) -> list[float]:
     """Embed a single query string."""
     client = _get_client()
