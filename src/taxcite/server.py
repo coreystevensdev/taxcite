@@ -8,6 +8,8 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import Literal
 
+import psycopg2
+
 from fastapi import FastAPI, HTTPException
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
@@ -110,8 +112,6 @@ _checkpointer = MemorySaver()
 _graph = build_graph(checkpointer=_checkpointer)
 
 
-# --- Request / response models ---
-
 class AskRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
 
@@ -144,8 +144,6 @@ class ResumeRequest(BaseModel):
     thread_id: str
     approved: bool
 
-
-# --- Routes ---
 
 @app.get("/health")
 def health() -> dict:
@@ -180,7 +178,9 @@ def ask(req: AskRequest) -> AskCompleteResponse | AskAwaitingResponse:
         _graph.invoke(initial, config=config)
     except CostBudgetExceeded as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except Exception as exc:
+    except (ValueError, RuntimeError, psycopg2.Error) as exc:
+        # Covers: malformed state, LangGraph compile errors, DB connection failures.
+        logger.exception("Graph execution failed for thread %s", thread_id)
         raise HTTPException(status_code=500, detail="Graph execution failed. Check server logs.") from exc
 
     snapshot = _graph.get_state(config)
@@ -220,7 +220,9 @@ def ask_resume(req: ResumeRequest) -> AskCompleteResponse:
         _graph.invoke(Command(resume=req.approved), config=config)
     except CostBudgetExceeded as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except Exception as exc:
+    except (ValueError, RuntimeError, psycopg2.Error) as exc:
+        # Covers: bad resume state, LangGraph internal errors, DB connection failures.
+        logger.exception("Graph resume failed for thread %s", req.thread_id)
         raise HTTPException(status_code=500, detail="Graph resume failed. Check server logs.") from exc
 
     values = _graph.get_state(config).values

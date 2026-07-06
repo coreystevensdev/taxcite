@@ -45,7 +45,9 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
 
 @traceable(name="embed_query", run_type="embedding")
 def embed_query(text: str) -> list[float]:
-    """Embed a single query string."""
+    """input_type="query" tells Voyage to optimize the vector for search rather than storage.
+    Use embed_texts() (input_type="document") when ingesting corpus chunks.
+    """
     client = _get_client()
     response = client.embed([text], model=EMBED_MODEL, input_type="query")
     _guard(response.total_tokens)
