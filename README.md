@@ -1,7 +1,7 @@
 # TaxCite
 
 ![CI](https://github.com/coreystevensdev/taxcite/actions/workflows/tests.yml/badge.svg)
-![38 tests](https://img.shields.io/badge/tests-38-brightgreen)
+![41 tests](https://img.shields.io/badge/tests-41-brightgreen)
 
 [github.com/coreystevensdev/taxcite](https://github.com/coreystevensdev/taxcite)
 
@@ -42,7 +42,7 @@ The LangGraph state machine has four nodes with two conditional edges. `retrieve
 
 ## Eval Harness
 
-Ragas evaluation over 5 questions across all 14 ingested IRS publications, scoring faithfulness, answer relevancy, and context precision. Scoring uses Ragas with OpenAI as the judge LLM (`OPENAI_API_KEY`); the agent itself uses Anthropic + Voyage AI.
+Ragas evaluation over 50 questions spanning all 14 ingested IRS publications, scoring faithfulness, answer relevancy, and context precision. Questions include numeric exact-match cases (dollar thresholds, age limits, percentages) and conceptual retrieval cases. Scoring uses Ragas with OpenAI as the judge LLM (`OPENAI_API_KEY`); the agent itself uses Anthropic + Voyage AI.
 
 Run after ingestion:
 
