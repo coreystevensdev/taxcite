@@ -13,16 +13,28 @@ from taxcite.parse import parse_pdf
 
 
 def cmd_ingest(pub_ids: list[str]) -> int:
+    from taxcite import db
+    from taxcite.embed import embed_texts
+
     pubs = [get_publication(p) for p in pub_ids] if pub_ids else list(CORPUS)
-    for pub in pubs:
-        path = fetch_publication(pub)
-        pages = parse_pdf(path)
-        chunks = chunk_pages(pub.pub_id, pages)
-        total_chars = sum(len(c.text) for c in chunks)
-        print(
-            f"{pub.pub_id:>6}  {len(pages):>4} pages  {len(chunks):>5} chunks  "
-            f"{total_chars // max(len(chunks), 1):>5} avg chars  {pub.title}"
-        )
+    conn = db.get_connection()
+    try:
+        db.run_migration(conn)
+        for pub in pubs:
+            path = fetch_publication(pub)
+            pages = parse_pdf(path)
+            chunks = chunk_pages(pub.pub_id, pages)
+            texts = [c.text for c in chunks]
+            embeddings = embed_texts(texts)
+            for chunk, embedding in zip(chunks, embeddings):
+                db.upsert_chunk(conn, chunk, embedding)
+            total_chars = sum(len(c.text) for c in chunks)
+            print(
+                f"{pub.pub_id:>6}  {len(pages):>4} pages  {len(chunks):>5} chunks  "
+                f"{total_chars // max(len(chunks), 1):>5} avg chars  {pub.title}"
+            )
+    finally:
+        conn.close()
     return 0
 
 

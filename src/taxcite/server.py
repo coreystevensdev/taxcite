@@ -1,7 +1,9 @@
 """FastAPI server exposing the TaxCite agent over HTTP."""
 from __future__ import annotations
 
+import logging
 import os
+import threading
 import uuid
 from contextlib import asynccontextmanager
 from typing import Literal
@@ -12,6 +14,41 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 from taxcite.agent import AgentState, build_graph
+
+logger = logging.getLogger(__name__)
+
+# Tracks background ingest state so /status can surface it.
+_ingest: dict[str, object] = {"state": "idle"}
+
+
+def _run_ingest_thread() -> None:
+    """Populate the vector store from the IRS corpus. Runs once in a daemon thread."""
+    from taxcite import db
+    from taxcite.chunk import chunk_pages
+    from taxcite.embed import embed_texts
+    from taxcite.fetch import fetch_publication
+    from taxcite.manifest import CORPUS
+    from taxcite.parse import parse_pdf
+
+    _ingest["state"] = "running"
+    logger.info("auto-ingest: starting")
+    conn = db.get_connection()
+    try:
+        for pub in CORPUS:
+            path = fetch_publication(pub)
+            pages = parse_pdf(path)
+            chunks = chunk_pages(pub.pub_id, pages)
+            embeddings = embed_texts([c.text for c in chunks])
+            for chunk, embedding in zip(chunks, embeddings):
+                db.upsert_chunk(conn, chunk, embedding)
+            logger.info("auto-ingest: %s done (%d chunks)", pub.pub_id, len(chunks))
+        _ingest["state"] = "ready"
+        logger.info("auto-ingest: complete")
+    except Exception:
+        _ingest["state"] = "error"
+        logger.exception("auto-ingest: failed")
+    finally:
+        conn.close()
 
 
 def _configure_telemetry(app: FastAPI) -> None:
@@ -41,14 +78,25 @@ def _configure_telemetry(app: FastAPI) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Idempotent migration: safe to run on every cold start.
     if os.getenv("DATABASE_URL"):
         from taxcite import db
+
+        # Schema migration is idempotent; safe on every cold start.
         conn = db.get_connection()
         try:
             db.run_migration(conn)
+            chunk_counts = db.count_chunks(conn)
         finally:
             conn.close()
+
+        # On first boot (empty DB), populate the corpus in the background.
+        # The server returns /health 200 immediately so Render's healthcheck
+        # doesn't time out. Queries return empty results until ingest completes.
+        if not chunk_counts and os.getenv("VOYAGE_API_KEY"):
+            t = threading.Thread(target=_run_ingest_thread, daemon=True)
+            t.start()
+        else:
+            _ingest["state"] = "ready" if chunk_counts else "idle"
     yield
 
 
@@ -101,6 +149,20 @@ class ResumeRequest(BaseModel):
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/status")
+def status() -> dict:
+    """Ingest state: idle | running | ready | error. Ready means /ask is functional."""
+    if os.getenv("DATABASE_URL"):
+        from taxcite import db
+        conn = db.get_connection()
+        try:
+            counts = db.count_chunks(conn)
+        finally:
+            conn.close()
+        return {"ingest": _ingest["state"], "chunks_by_pub": counts}
+    return {"ingest": _ingest["state"], "chunks_by_pub": {}}
 
 
 @app.post("/ask")
