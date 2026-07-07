@@ -54,8 +54,11 @@ def _run_agent_on_question(graph, question: str, config: dict) -> tuple[str, lis
     return values.get("answer", ""), contexts
 
 
-def _score_with_ragas(records: list[dict]) -> dict:
-    """Score records with Ragas; returns metric dict + per-question scores."""
+METRIC_NAMES = ("faithfulness", "answer_relevancy", "context_precision")
+
+
+def _score_with_ragas(records: list[dict]):
+    """Run Ragas and return its EvaluationResult."""
     try:
         from datasets import Dataset
         from ragas import evaluate
@@ -66,11 +69,24 @@ def _score_with_ragas(records: list[dict]) -> dict:
         ) from exc
 
     dataset = Dataset.from_list(records)
-    result = evaluate(
+    return evaluate(
         dataset,
         metrics=[faithfulness, answer_relevancy, context_precision],
     )
-    return result
+
+
+def _aggregate_metrics(scores) -> dict[str, float]:
+    """Mean each metric column of a Ragas EvaluationResult.
+
+    ragas >= 0.2 returns an EvaluationResult, not a dict: per-sample scores
+    live in .to_pandas() and the headline number is the column mean.
+    """
+    df = scores.to_pandas()
+    return {
+        name: round(float(df[name].mean()), 4)
+        for name in METRIC_NAMES
+        if name in df.columns
+    }
 
 
 def run_eval(dataset_path: Path = DEFAULT_DATASET, report_path: Path = DEFAULT_REPORT) -> dict:
@@ -98,7 +114,7 @@ def run_eval(dataset_path: Path = DEFAULT_DATASET, report_path: Path = DEFAULT_R
     scores = _score_with_ragas(records)
 
     report = {
-        "metrics": {k: round(float(v), 4) for k, v in scores.items() if isinstance(v, (int, float))},
+        "metrics": _aggregate_metrics(scores),
         "n_questions": len(items),
         "per_question": records,
     }

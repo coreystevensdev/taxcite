@@ -13,7 +13,7 @@ import psycopg2
 from fastapi import FastAPI, HTTPException
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from taxcite.agent import AgentState, build_graph
 from taxcite.cost import CostBudgetExceeded
@@ -46,6 +46,7 @@ def _run_ingest_thread() -> None:
             embeddings = embed_texts([c.text for c in chunks])
             for chunk, embedding in zip(chunks, embeddings):
                 db.upsert_chunk(conn, chunk, embedding)
+            db.prune_chunks(conn, pub.pub_id, len(chunks))
             logger.info("auto-ingest: %s done (%d chunks)", pub.pub_id, len(chunks))
         _ingest["state"] = "ready"
         _ingest.pop("stage", None)
@@ -146,8 +147,16 @@ class AskAwaitingResponse(BaseModel):
 
 
 class ResumeRequest(BaseModel):
-    thread_id: str
+    thread_id: str = Field(..., min_length=36, max_length=36)
     approved: bool
+
+    @field_validator("thread_id")
+    @classmethod
+    def _must_be_uuid(cls, v: str) -> str:
+        # thread_ids are server-minted UUIDs; reject anything else before it
+        # reaches the checkpointer instead of probing arbitrary state keys.
+        uuid.UUID(v)
+        return v
 
 
 @app.get("/health")
@@ -171,7 +180,9 @@ def status() -> dict:
     if "stage" in _ingest:
         body["stage"] = _ingest["stage"]
     if "error" in _ingest:
-        body["error"] = _ingest["error"]
+        # The raw cause (exception type + message, possibly a DSN or path) is in
+        # the server log; the public endpoint gets a coarse flag only.
+        body["error"] = "ingest failed; see server logs"
     return body
 
 
@@ -188,7 +199,12 @@ def ask(req: AskRequest) -> AskCompleteResponse | AskAwaitingResponse:
     try:
         _graph.invoke(initial, config=config)
     except CostBudgetExceeded as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        # Log the spend detail; don't hand budget figures to an anonymous caller.
+        logger.warning("Cost cap tripped for thread %s: %s", thread_id, exc)
+        raise HTTPException(
+            status_code=503,
+            detail="Service temporarily unavailable due to usage limits. Retry later.",
+        ) from exc
     except psycopg2.OperationalError as exc:
         # DB is unreachable or down: a dependency failure, not a server bug.
         logger.exception("Database unavailable for thread %s", thread_id)
@@ -234,7 +250,11 @@ def ask_resume(req: ResumeRequest) -> AskCompleteResponse:
     try:
         _graph.invoke(Command(resume=req.approved), config=config)
     except CostBudgetExceeded as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        logger.warning("Cost cap tripped for thread %s: %s", req.thread_id, exc)
+        raise HTTPException(
+            status_code=503,
+            detail="Service temporarily unavailable due to usage limits. Retry later.",
+        ) from exc
     except psycopg2.OperationalError as exc:
         # DB is unreachable or down: a dependency failure, not a server bug.
         logger.exception("Database unavailable for thread %s", req.thread_id)

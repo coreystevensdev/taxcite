@@ -64,6 +64,24 @@ def upsert_chunk(
     conn.commit()
 
 
+def prune_chunks(conn: psycopg2.extensions.connection, pub_id: str, keep_count: int) -> int:
+    """Drop orphan rows left when a re-ingest yields fewer chunks than before.
+
+    Ordinals are positional (0..keep_count-1), so upsert overwrites the current
+    range but never touches higher ordinals from a prior, longer run. Those
+    stale rows keep their old embeddings and would pollute search. keep_count=0
+    clears the publication entirely.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM chunks WHERE pub_id = %s AND ordinal >= %s",
+            (pub_id, keep_count),
+        )
+        deleted = cur.rowcount
+    conn.commit()
+    return deleted
+
+
 def search_chunks(
     conn: psycopg2.extensions.connection,
     embedding: list[float],

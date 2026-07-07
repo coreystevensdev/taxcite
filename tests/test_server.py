@@ -14,6 +14,8 @@ _BASE_STATE = {
     "citations": [],
 }
 
+_VALID_THREAD_ID = "123e4567-e89b-12d3-a456-426614174000"
+
 
 def _mock_graph(
     answer: str = "",
@@ -156,7 +158,9 @@ class TestIngestThread:
             body = resp.json()
             assert body["ingest"] == "error"
             assert body["stage"] == "p17"
-            assert body["error"] == "RuntimeError: boom"
+            # The raw exception cause stays in the log, not the public response.
+            assert body["error"] == "ingest failed; see server logs"
+            assert "RuntimeError" not in body["error"]
 
 
 class TestAskResume:
@@ -177,7 +181,7 @@ class TestAskResume:
             client = TestClient(app)
             resp = client.post(
                 "/ask/resume",
-                json={"thread_id": "abc-123", "approved": True},
+                json={"thread_id": _VALID_THREAD_ID, "approved": True},
             )
 
         assert resp.status_code == 200
@@ -195,7 +199,12 @@ class TestAskResume:
             client = TestClient(app)
             resp = client.post(
                 "/ask/resume",
-                json={"thread_id": "does-not-exist", "approved": True},
+                json={"thread_id": "11111111-2222-3333-4444-555555555555", "approved": True},
             )
 
         assert resp.status_code == 404
+
+    def test_resume_non_uuid_thread_id_returns_422(self):
+        client = TestClient(app)
+        resp = client.post("/ask/resume", json={"thread_id": "not-a-uuid", "approved": True})
+        assert resp.status_code == 422

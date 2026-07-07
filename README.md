@@ -1,11 +1,11 @@
 # TaxCite
 
 ![CI](https://github.com/coreystevensdev/taxcite/actions/workflows/tests.yml/badge.svg)
-![46 tests](https://img.shields.io/badge/tests-46-brightgreen)
+![50 tests](https://img.shields.io/badge/tests-50-brightgreen)
 
 [github.com/coreystevensdev/taxcite](https://github.com/coreystevensdev/taxcite)
 
-Agentic RAG system that answers U.S. tax questions with page-level citations from IRS publications. 41 tests (pytest). Ragas eval harness for faithfulness, answer relevancy, and context precision.
+Agentic RAG system that answers U.S. tax questions with page-level citations from IRS publications. 50 tests (pytest). Ragas eval harness for faithfulness, answer relevancy, and context precision.
 
 ## Problem
 
@@ -27,7 +27,7 @@ flowchart TD
     F --> G["{status: complete, answer,\ncitations: [{pub_id, first_page, last_page}]}"]
 ```
 
-The LangGraph state machine has four nodes with two conditional edges. `retrieve` routes to `human_review` when chunks are found, or `no_documents` when the corpus has nothing. `human_review` calls `interrupt()` to pause the graph for human approval of the retrieved excerpts; the graph saves its checkpoint to `MemorySaver`, the server returns an intermediate response with the chunks preview, and `POST /ask/resume` resumes from the saved checkpoint with the human's decision. `generate_answer` forces a structured tool call so citations are always machine-readable rather than extracted from prose.
+The LangGraph state machine has five nodes with two conditional edges. `retrieve` routes to `human_review` when chunks are found, or `no_documents` when the corpus has nothing. `human_review` calls `interrupt()` to pause the graph for human approval of the retrieved excerpts; the graph saves its checkpoint to `MemorySaver`, the server returns an intermediate response with the chunks preview, and `POST /ask/resume` resumes from the saved checkpoint with the human's decision. `generate_answer` forces a structured tool call so citations are always machine-readable rather than extracted from prose.
 
 ## Eval Harness
 

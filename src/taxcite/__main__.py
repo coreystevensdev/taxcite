@@ -28,6 +28,7 @@ def cmd_ingest(pub_ids: list[str]) -> int:
             embeddings = embed_texts(texts)
             for chunk, embedding in zip(chunks, embeddings):
                 db.upsert_chunk(conn, chunk, embedding)
+            db.prune_chunks(conn, pub.pub_id, len(chunks))
             total_chars = sum(len(c.text) for c in chunks)
             print(
                 f"{pub.pub_id:>6}  {len(pages):>4} pages  {len(chunks):>5} chunks  "

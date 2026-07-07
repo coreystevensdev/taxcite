@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import numpy as np
 
 from taxcite.chunk import Chunk
-from taxcite.db import count_chunks, run_migration, search_chunks, upsert_chunk
+from taxcite.db import count_chunks, prune_chunks, run_migration, search_chunks, upsert_chunk
 
 CHUNK_A = Chunk(pub_id="p501", ordinal=0, first_page=1, last_page=2, text="standard deduction text")
 EMBEDDING_A = [0.1] * 1024
@@ -61,3 +61,15 @@ def test_count_chunks_returns_dict():
     conn, cursor = _make_conn(rows=rows)
     result = count_chunks(conn)
     assert result == {"p501": 42, "p590a": 18}
+
+
+def test_prune_chunks_deletes_orphan_ordinals():
+    conn, cursor = _make_conn()
+    cursor.rowcount = 3
+    deleted = prune_chunks(conn, "p501", keep_count=10)
+    sql, params = cursor.execute.call_args[0]
+    assert "DELETE FROM chunks" in sql
+    assert "ordinal >= %s" in sql
+    assert params == ("p501", 10)
+    assert deleted == 3
+    conn.commit.assert_called_once()
