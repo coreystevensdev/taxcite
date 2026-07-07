@@ -34,10 +34,12 @@ def _run_ingest_thread() -> None:
     from taxcite.parse import parse_pdf
 
     _ingest["state"] = "running"
+    _ingest.pop("error", None)
     logger.info("auto-ingest: starting")
     conn = db.get_connection()
     try:
         for pub in CORPUS:
+            _ingest["stage"] = pub.pub_id
             path = fetch_publication(pub)
             pages = parse_pdf(path)
             chunks = chunk_pages(pub.pub_id, pages)
@@ -46,10 +48,13 @@ def _run_ingest_thread() -> None:
                 db.upsert_chunk(conn, chunk, embedding)
             logger.info("auto-ingest: %s done (%d chunks)", pub.pub_id, len(chunks))
         _ingest["state"] = "ready"
+        _ingest.pop("stage", None)
         logger.info("auto-ingest: complete")
-    except Exception:
+    except Exception as exc:
         _ingest["state"] = "error"
-        logger.exception("auto-ingest: failed")
+        # Surface the cause at the thread boundary so /status can report which stage failed.
+        _ingest["error"] = f"{type(exc).__name__}: {exc}"
+        logger.exception("auto-ingest: failed at stage %s", _ingest.get("stage"))
     finally:
         conn.close()
 
@@ -153,6 +158,7 @@ def health() -> dict:
 @app.get("/status")
 def status() -> dict:
     """Ingest state: idle | running | ready | error. Ready means /ask is functional."""
+    counts: dict = {}
     if os.getenv("DATABASE_URL"):
         from taxcite import db
         conn = db.get_connection()
@@ -160,8 +166,13 @@ def status() -> dict:
             counts = db.count_chunks(conn)
         finally:
             conn.close()
-        return {"ingest": _ingest["state"], "chunks_by_pub": counts}
-    return {"ingest": _ingest["state"], "chunks_by_pub": {}}
+
+    body: dict = {"ingest": _ingest["state"], "chunks_by_pub": counts}
+    if "stage" in _ingest:
+        body["stage"] = _ingest["stage"]
+    if "error" in _ingest:
+        body["error"] = _ingest["error"]
+    return body
 
 
 @app.post("/ask")
@@ -178,8 +189,12 @@ def ask(req: AskRequest) -> AskCompleteResponse | AskAwaitingResponse:
         _graph.invoke(initial, config=config)
     except CostBudgetExceeded as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except psycopg2.OperationalError as exc:
+        # DB is unreachable or down: a dependency failure, not a server bug.
+        logger.exception("Database unavailable for thread %s", thread_id)
+        raise HTTPException(status_code=503, detail="Database unavailable. Retry shortly.") from exc
     except (ValueError, RuntimeError, psycopg2.Error) as exc:
-        # Covers: malformed state, LangGraph compile errors, DB connection failures.
+        # Covers: malformed state, LangGraph compile errors, in-flight DB query errors.
         logger.exception("Graph execution failed for thread %s", thread_id)
         raise HTTPException(status_code=500, detail="Graph execution failed. Check server logs.") from exc
 
@@ -220,8 +235,12 @@ def ask_resume(req: ResumeRequest) -> AskCompleteResponse:
         _graph.invoke(Command(resume=req.approved), config=config)
     except CostBudgetExceeded as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except psycopg2.OperationalError as exc:
+        # DB is unreachable or down: a dependency failure, not a server bug.
+        logger.exception("Database unavailable for thread %s", req.thread_id)
+        raise HTTPException(status_code=503, detail="Database unavailable. Retry shortly.") from exc
     except (ValueError, RuntimeError, psycopg2.Error) as exc:
-        # Covers: bad resume state, LangGraph internal errors, DB connection failures.
+        # Covers: bad resume state, LangGraph internal errors, in-flight DB query errors.
         logger.exception("Graph resume failed for thread %s", req.thread_id)
         raise HTTPException(status_code=500, detail="Graph resume failed. Check server logs.") from exc
 

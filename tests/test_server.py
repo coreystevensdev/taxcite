@@ -105,6 +105,59 @@ class TestAsk:
 
         assert resp.status_code == 503
 
+    def test_database_unavailable_returns_503(self):
+        import psycopg2
+
+        mock = MagicMock()
+        mock.invoke.side_effect = psycopg2.OperationalError("could not connect to server")
+        with patch("taxcite.server._graph", mock):
+            client = TestClient(app)
+            resp = client.post("/ask", json={"question": "test question"})
+
+        assert resp.status_code == 503
+        assert "Database unavailable" in resp.json()["detail"]
+
+    def test_db_query_error_returns_500(self):
+        import psycopg2
+
+        mock = MagicMock()
+        mock.invoke.side_effect = psycopg2.ProgrammingError("relation does not exist")
+        with patch("taxcite.server._graph", mock):
+            client = TestClient(app)
+            resp = client.post("/ask", json={"question": "test question"})
+
+        assert resp.status_code == 500
+
+
+class TestIngestThread:
+    def test_records_failing_stage_and_cause(self):
+        from taxcite import server
+
+        with patch.dict(server._ingest, {}, clear=True), \
+                patch("taxcite.db.get_connection") as mock_conn, \
+                patch("taxcite.fetch.fetch_publication", side_effect=RuntimeError("HTTP 404 from IRS")):
+            mock_conn.return_value = MagicMock()
+            server._run_ingest_thread()
+
+            assert server._ingest["state"] == "error"
+            assert server._ingest["stage"]  # first pub in CORPUS
+            assert "RuntimeError" in server._ingest["error"]
+            assert "HTTP 404" in server._ingest["error"]
+
+    def test_status_surfaces_error(self):
+        from taxcite import server
+
+        with patch.dict(server._ingest, {"state": "error", "stage": "p17", "error": "RuntimeError: boom"}, clear=True), \
+                patch("taxcite.server.os.getenv", return_value=None):
+            client = TestClient(app)
+            resp = client.get("/status")
+
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["ingest"] == "error"
+            assert body["stage"] == "p17"
+            assert body["error"] == "RuntimeError: boom"
+
 
 class TestAskResume:
     def test_resume_returns_final_answer(self):

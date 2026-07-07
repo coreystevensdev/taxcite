@@ -15,6 +15,10 @@ BATCH_SIZE = 128
 _client: voyageai.Client | None = None
 
 
+class EmbeddingError(RuntimeError):
+    pass
+
+
 def _get_client() -> voyageai.Client:
     global _client
     if _client is None:
@@ -51,4 +55,6 @@ def embed_query(text: str) -> list[float]:
     client = _get_client()
     response = client.embed([text], model=EMBED_MODEL, input_type="query")
     _guard(response.total_tokens)
+    if not response.embeddings:
+        raise EmbeddingError("Voyage returned no embeddings for the query")
     return response.embeddings[0]

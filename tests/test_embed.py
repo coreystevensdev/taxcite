@@ -63,6 +63,18 @@ def test_embed_query_uses_query_input_type(mock_get_client):
 
 
 @patch("taxcite.embed._get_client")
+def test_embed_query_raises_embedding_error_on_empty_response(mock_get_client):
+    from taxcite.embed import EmbeddingError, embed_query
+
+    client = MagicMock()
+    client.embed.return_value = _make_response([], total_tokens=10)
+    mock_get_client.return_value = client
+
+    with pytest.raises(EmbeddingError, match="no embeddings"):
+        embed_query("what is the standard deduction?")
+
+
+@patch("taxcite.embed._get_client")
 def test_embed_query_raises_cost_budget_exceeded_when_cap_trips(mock_get_client):
     from taxcite import cost
     from taxcite.cost import CostBudgetExceeded
