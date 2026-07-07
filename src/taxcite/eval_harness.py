@@ -14,7 +14,6 @@ RAGAS_LLM env var (see ragas docs).
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 DEFAULT_DATASET = Path(__file__).parent.parent.parent / "eval" / "dataset.jsonl"
