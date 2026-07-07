@@ -1,7 +1,7 @@
 # TaxCite
 
 ![CI](https://github.com/coreystevensdev/taxcite/actions/workflows/tests.yml/badge.svg)
-![41 tests](https://img.shields.io/badge/tests-41-brightgreen)
+![46 tests](https://img.shields.io/badge/tests-46-brightgreen)
 
 [github.com/coreystevensdev/taxcite](https://github.com/coreystevensdev/taxcite)
 
