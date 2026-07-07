@@ -208,3 +208,92 @@ class TestAskResume:
         client = TestClient(app)
         resp = client.post("/ask/resume", json={"thread_id": "not-a-uuid", "approved": True})
         assert resp.status_code == 422
+
+    def test_resume_cost_budget_exceeded_returns_503(self):
+        from taxcite.cost import CostBudgetExceeded
+
+        interrupted = MagicMock()
+        interrupted.next = ("human_review",)
+        interrupted.values = _BASE_STATE
+        mock = MagicMock()
+        mock.get_state.return_value = interrupted
+        mock.invoke.side_effect = CostBudgetExceeded("monthly-budget tripped")
+
+        with patch("taxcite.server._graph", mock):
+            client = TestClient(app)
+            resp = client.post("/ask/resume", json={"thread_id": _VALID_THREAD_ID, "approved": True})
+
+        assert resp.status_code == 503
+        assert "usage limits" in resp.json()["detail"]
+
+    def test_resume_db_operational_error_returns_503(self):
+        import psycopg2
+
+        interrupted = MagicMock()
+        interrupted.next = ("human_review",)
+        interrupted.values = _BASE_STATE
+        mock = MagicMock()
+        mock.get_state.return_value = interrupted
+        mock.invoke.side_effect = psycopg2.OperationalError("connection refused")
+
+        with patch("taxcite.server._graph", mock):
+            client = TestClient(app)
+            resp = client.post("/ask/resume", json={"thread_id": _VALID_THREAD_ID, "approved": True})
+
+        assert resp.status_code == 503
+        assert "Database unavailable" in resp.json()["detail"]
+
+    def test_resume_runtime_error_returns_500(self):
+        interrupted = MagicMock()
+        interrupted.next = ("human_review",)
+        interrupted.values = _BASE_STATE
+        mock = MagicMock()
+        mock.get_state.return_value = interrupted
+        mock.invoke.side_effect = RuntimeError("internal graph error")
+
+        with patch("taxcite.server._graph", mock):
+            client = TestClient(app)
+            resp = client.post("/ask/resume", json={"thread_id": _VALID_THREAD_ID, "approved": True})
+
+        assert resp.status_code == 500
+
+
+class TestRateLimit:
+    def test_ask_returns_429_when_rate_limit_exhausted(self):
+        from slowapi import Limiter
+        from slowapi.util import get_remote_address
+
+        original = app.state.limiter
+        app.state.limiter = Limiter(key_func=get_remote_address)
+        mock = _mock_graph("answer", [])
+        try:
+            with patch("taxcite.server._graph", mock):
+                client = TestClient(app)
+                for _ in range(10):  # exhaust the 10/minute limit
+                    client.post("/ask", json={"question": "test"})
+                resp = client.post("/ask", json={"question": "test"})
+        finally:
+            app.state.limiter = original
+
+        assert resp.status_code == 429
+
+    def test_resume_returns_429_when_rate_limit_exhausted(self):
+        from slowapi import Limiter
+        from slowapi.util import get_remote_address
+
+        original = app.state.limiter
+        app.state.limiter = Limiter(key_func=get_remote_address)
+        not_found = MagicMock()
+        not_found.next = ()
+        mock = MagicMock()
+        mock.get_state.return_value = not_found
+        try:
+            with patch("taxcite.server._graph", mock):
+                client = TestClient(app)
+                for _ in range(20):  # exhaust the 20/minute limit
+                    client.post("/ask/resume", json={"thread_id": _VALID_THREAD_ID, "approved": True})
+                resp = client.post("/ask/resume", json={"thread_id": _VALID_THREAD_ID, "approved": True})
+        finally:
+            app.state.limiter = original
+
+        assert resp.status_code == 429

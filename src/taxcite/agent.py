@@ -109,6 +109,10 @@ def generate_answer(state: AgentState) -> dict:
         + "\n\nAnswer the question with inline citations, then call submit_answer."
     )
 
+    pre = cost.cap.check(0.0)
+    if not pre.allowed:
+        raise cost.CostBudgetExceeded(f"pre-call budget check: {pre.trip}")
+
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     response = client.messages.create(
         model=ANTHROPIC_MODEL,

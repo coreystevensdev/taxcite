@@ -21,6 +21,7 @@ dependencies = [
   "anthropic>=0.50,<2.0",
   "rolling-cost-cap>=0.1",
   "fastapi>=0.115",
+  "slowapi>=0.1.9",
   "uvicorn[standard]>=0.30",
   "opentelemetry-sdk>=1.25",
   "opentelemetry-instrumentation-fastapi>=0.46b0",

@@ -184,6 +184,50 @@ def test_generate_answer_raises_cost_budget_exceeded_when_cap_trips():
             generate_answer(_state_with_chunks())
 
 
+# build_graph integration
+
+def test_build_graph_compiles_without_checkpointer():
+    from taxcite.agent import build_graph
+    graph = build_graph()
+    assert graph is not None
+
+
+def test_build_graph_with_memory_checkpointer():
+    from langgraph.checkpoint.memory import MemorySaver
+    from taxcite.agent import build_graph
+    graph = build_graph(checkpointer=MemorySaver())
+    assert graph is not None
+
+
+def test_build_graph_has_all_expected_nodes():
+    from taxcite.agent import build_graph
+    graph = build_graph()
+    nodes = set(graph.get_graph().nodes.keys())
+    expected = {"retrieve", "human_review", "generate_answer", "no_documents", "rejected"}
+    assert expected.issubset(nodes)
+
+
+# cost-cap pre-check in generate_answer
+
+def test_generate_answer_pre_checks_budget_before_calling_llm():
+    from taxcite import cost
+    from taxcite.cost import CostBudgetExceeded
+
+    blocked = MagicMock()
+    blocked.allowed = False
+    blocked.trip = "monthly-budget"
+
+    with (
+        patch("taxcite.agent.anthropic.Anthropic") as MockClient,
+        patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}),
+        patch.object(cost.cap, "check", return_value=blocked),
+    ):
+        with pytest.raises(CostBudgetExceeded, match="pre-call"):
+            generate_answer(_state_with_chunks())
+
+        MockClient.return_value.messages.create.assert_not_called()
+
+
 # no_documents node
 
 def test_no_documents_returns_fallback_with_empty_citations():

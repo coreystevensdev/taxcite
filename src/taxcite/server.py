@@ -10,10 +10,13 @@ from typing import Literal
 
 import psycopg2
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 from pydantic import BaseModel, Field, field_validator
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from taxcite.agent import AgentState, build_graph
 from taxcite.cost import CostBudgetExceeded
@@ -109,7 +112,11 @@ async def lifespan(app: FastAPI):
     yield
 
 
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(title="TaxCite", version="0.1.0", lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 _configure_telemetry(app)
 
 # MemorySaver enables HITL interrupt/resume across requests (per-process).
@@ -187,7 +194,8 @@ def status() -> dict:
 
 
 @app.post("/ask")
-def ask(req: AskRequest) -> AskCompleteResponse | AskAwaitingResponse:
+@limiter.limit("10/minute")
+def ask(request: Request, req: AskRequest) -> AskCompleteResponse | AskAwaitingResponse:
     thread_id = str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
     initial: AgentState = {
@@ -239,7 +247,8 @@ def ask(req: AskRequest) -> AskCompleteResponse | AskAwaitingResponse:
 
 
 @app.post("/ask/resume")
-def ask_resume(req: ResumeRequest) -> AskCompleteResponse:
+@limiter.limit("20/minute")
+def ask_resume(request: Request, req: ResumeRequest) -> AskCompleteResponse:
     """Resume a graph run paused at the human_review interrupt."""
     config = {"configurable": {"thread_id": req.thread_id}}
 
