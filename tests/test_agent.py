@@ -33,7 +33,7 @@ def _state_with_chunks() -> AgentState:
     return {**_EMPTY_STATE, "chunks": [_FAKE_CHUNK]}
 
 
-# ---- retrieve node ----
+# retrieve node
 
 def test_retrieve_embeds_question_and_returns_chunks():
     mock_conn = MagicMock()
@@ -63,7 +63,7 @@ def test_retrieve_closes_connection_on_search_error():
     mock_conn.close.assert_called_once()
 
 
-# ---- routing after retrieve ----
+# routing after retrieve
 
 def test_route_returns_human_review_when_chunks_present():
     assert _route_after_retrieve(_state_with_chunks()) == "human_review"
@@ -73,7 +73,7 @@ def test_route_returns_no_documents_when_chunks_empty():
     assert _route_after_retrieve(_EMPTY_STATE) == "no_documents"
 
 
-# ---- routing after human_review ----
+# routing after human_review
 
 def test_route_after_review_approved():
     state = {**_state_with_chunks(), "human_approved": True}
@@ -90,7 +90,7 @@ def test_route_after_review_none_treated_as_rejected():
     assert _route_after_review(_state_with_chunks()) == "rejected"
 
 
-# ---- human_review node ----
+# human_review node
 
 def test_human_review_approved_sets_state():
     with patch("taxcite.agent.interrupt", return_value=True):
@@ -113,7 +113,7 @@ def test_human_review_passes_chunks_preview_to_interrupt():
     assert call_args["chunks_preview"][0]["pub_id"] == "p17"
 
 
-# ---- generate_answer node ----
+# generate_answer node
 
 def _make_tool_response(answer: str, citations: list[dict]) -> MagicMock:
     tool_block = SimpleNamespace(
@@ -184,7 +184,7 @@ def test_generate_answer_raises_cost_budget_exceeded_when_cap_trips():
             generate_answer(_state_with_chunks())
 
 
-# ---- no_documents node ----
+# no_documents node
 
 def test_no_documents_returns_fallback_with_empty_citations():
     result = no_documents(_EMPTY_STATE)
@@ -193,7 +193,7 @@ def test_no_documents_returns_fallback_with_empty_citations():
     assert result["citations"] == []
 
 
-# ---- rejected node ----
+# rejected node
 
 def test_rejected_returns_cancellation_message():
     result = rejected(_EMPTY_STATE)
