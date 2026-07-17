@@ -32,6 +32,11 @@ CREATE INDEX IF NOT EXISTS chunks_embedding_idx
 
 def get_connection() -> psycopg2.extensions.connection:
     conn = psycopg2.connect(os.environ["DATABASE_URL"])
+    # register_vector needs the vector type to exist first, so a brand-new
+    # database (no prior run_migration call) would otherwise fail to connect.
+    with conn.cursor() as cur:
+        cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+    conn.commit()
     register_vector(conn)
     return conn
 
