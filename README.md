@@ -125,9 +125,9 @@ The trace tree per request:
 ```
 LangGraph run
   ├─ retrieve              (node span, auto-instrumented by LangGraph)
-  │    └─ embed_query      (embedding span — Voyage AI latency + model)
-  ├─ human_review          (node span — shows interrupt payload)
-  └─ generate_answer       (llm span — Anthropic messages, token counts, cost)
+  │    └─ embed_query      (embedding span: Voyage AI latency + model)
+  ├─ human_review          (node span: shows interrupt payload)
+  └─ generate_answer       (llm span: Anthropic messages, token counts, cost)
 ```
 
 Traces show: LangGraph state transitions (retrieve -> human_review -> generate_answer), the HITL interrupt point and resume event, the raw Anthropic messages payload, token counts and cost per node, Voyage AI embedding latency, and end-to-end latency across both the initial invoke and the resume call.
