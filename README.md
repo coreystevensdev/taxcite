@@ -5,6 +5,8 @@
 
 [github.com/coreystevensdev/taxcite](https://github.com/coreystevensdev/taxcite)
 
+## Overview
+
 Agentic RAG system that answers U.S. tax questions with page-level citations from IRS publications. 62 tests (pytest). Ragas eval harness for faithfulness, answer relevancy, and context precision.
 
 ## Problem
@@ -28,6 +30,15 @@ flowchart TD
 ```
 
 The LangGraph state machine has five nodes with two conditional edges. `retrieve` routes to `human_review` when chunks are found, or `no_documents` when the corpus has nothing. `human_review` calls `interrupt()` to pause the graph for human approval of the retrieved excerpts; the graph saves its checkpoint to `MemorySaver`, the server returns an intermediate response with the chunks preview, and `POST /ask/resume` resumes from the saved checkpoint with the human's decision. `generate_answer` forces a structured tool call so citations are always machine-readable rather than extracted from prose.
+
+## Routes
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/health` | Liveness check, no dependencies |
+| GET | `/status` | Ingest state (`idle`/`running`/`ready`/`error`) plus chunk counts per publication |
+| POST | `/ask` | Runs the graph; returns a complete answer or pauses at `human_review` with a chunks preview |
+| POST | `/ask/resume` | Resumes a paused thread from its `MemorySaver` checkpoint with the human's approve/reject decision |
 
 ## Eval Harness
 
