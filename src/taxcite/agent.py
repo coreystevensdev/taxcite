@@ -64,7 +64,7 @@ def retrieve(state: AgentState) -> dict:
     try:
         chunks = db.search_chunks(conn, query_vec, top_k=MAX_CHUNKS)
     finally:
-        conn.close()
+        db.release_connection(conn)
     return {"chunks": chunks}
 
 

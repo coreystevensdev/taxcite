@@ -24,11 +24,11 @@ _DIM = 1024
 
 @pytest.fixture
 def live_conn():
-    from taxcite.db import get_connection, run_migration
+    from taxcite.db import get_connection, release_connection, run_migration
     conn = get_connection()
     run_migration(conn)
     yield conn
-    conn.close()
+    release_connection(conn)
 
 
 def _pub() -> str:

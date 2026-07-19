@@ -6,6 +6,8 @@ import argparse
 import sys
 from pathlib import Path
 
+import psycopg2
+
 from taxcite.chunk import chunk_pages
 from taxcite.fetch import fetch_publication
 from taxcite.manifest import CORPUS, get_publication
@@ -26,16 +28,21 @@ def cmd_ingest(pub_ids: list[str]) -> int:
             chunks = chunk_pages(pub.pub_id, pages)
             texts = [c.text for c in chunks]
             embeddings = embed_texts(texts)
-            for chunk, embedding in zip(chunks, embeddings):
-                db.upsert_chunk(conn, chunk, embedding)
-            db.prune_chunks(conn, pub.pub_id, len(chunks))
+            try:
+                for chunk, embedding in zip(chunks, embeddings):
+                    db.upsert_chunk(conn, chunk, embedding, commit=False)
+                db.prune_chunks(conn, pub.pub_id, len(chunks), commit=False)
+                conn.commit()
+            except psycopg2.Error:
+                conn.rollback()
+                raise
             total_chars = sum(len(c.text) for c in chunks)
             print(
                 f"{pub.pub_id:>6}  {len(pages):>4} pages  {len(chunks):>5} chunks  "
                 f"{total_chars // max(len(chunks), 1):>5} avg chars  {pub.title}"
             )
     finally:
-        conn.close()
+        db.release_connection(conn)
     return 0
 
 

@@ -47,20 +47,27 @@ def _run_ingest_thread() -> None:
             pages = parse_pdf(path)
             chunks = chunk_pages(pub.pub_id, pages)
             embeddings = embed_texts([c.text for c in chunks])
-            for chunk, embedding in zip(chunks, embeddings):
-                db.upsert_chunk(conn, chunk, embedding)
-            db.prune_chunks(conn, pub.pub_id, len(chunks))
+            try:
+                for chunk, embedding in zip(chunks, embeddings):
+                    db.upsert_chunk(conn, chunk, embedding, commit=False)
+                db.prune_chunks(conn, pub.pub_id, len(chunks), commit=False)
+                conn.commit()
+            except psycopg2.Error:
+                conn.rollback()
+                raise
             logger.info("auto-ingest: %s done (%d chunks)", pub.pub_id, len(chunks))
         _ingest["state"] = "ready"
         _ingest.pop("stage", None)
         logger.info("auto-ingest: complete")
-    except Exception as exc:
+    except (RuntimeError, OSError, psycopg2.Error) as exc:
+        # Covers FetchError/EmbeddingError/CostBudgetExceeded (RuntimeError
+        # subclasses), pdfplumber file I/O (OSError), and DB errors.
         _ingest["state"] = "error"
         # Surface the cause at the thread boundary so /status can report which stage failed.
         _ingest["error"] = f"{type(exc).__name__}: {exc}"
         logger.exception("auto-ingest: failed at stage %s", _ingest.get("stage"))
     finally:
-        conn.close()
+        db.release_connection(conn)
 
 
 def _configure_telemetry(app: FastAPI) -> None:
@@ -99,7 +106,7 @@ async def lifespan(app: FastAPI):
             db.run_migration(conn)
             chunk_counts = db.count_chunks(conn)
         finally:
-            conn.close()
+            db.release_connection(conn)
 
         # On first boot (empty DB), populate the corpus in the background.
         # The server returns /health 200 immediately so Render's healthcheck
@@ -110,6 +117,10 @@ async def lifespan(app: FastAPI):
         else:
             _ingest["state"] = "ready" if chunk_counts else "idle"
     yield
+    if os.getenv("DATABASE_URL"):
+        from taxcite import db
+
+        db.close_pool()
 
 
 limiter = Limiter(key_func=get_remote_address)
@@ -181,7 +192,7 @@ def status() -> dict:
         try:
             counts = db.count_chunks(conn)
         finally:
-            conn.close()
+            db.release_connection(conn)
 
     body: dict = {"ingest": _ingest["state"], "chunks_by_pub": counts}
     if "stage" in _ingest:

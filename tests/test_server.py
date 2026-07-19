@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import psycopg2
+import pytest
 from fastapi.testclient import TestClient
 
 from taxcite.server import app
@@ -161,6 +163,82 @@ class TestIngestThread:
             # The raw exception cause stays in the log, not the public response.
             assert body["error"] == "ingest failed; see server logs"
             assert "RuntimeError" not in body["error"]
+
+    def test_commits_once_per_publication_not_per_chunk(self):
+        from taxcite import server
+        from taxcite.chunk import Chunk
+        from taxcite.manifest import Publication
+
+        pub = Publication("p501", "Test Pub")
+        chunks = [
+            Chunk(pub_id="p501", ordinal=i, first_page=i + 1, last_page=i + 1, text=f"c{i}")
+            for i in range(3)
+        ]
+        conn = MagicMock()
+
+        with (
+            patch.dict(server._ingest, {}, clear=True),
+            patch("taxcite.manifest.CORPUS", (pub,)),
+            patch("taxcite.fetch.fetch_publication", return_value="ignored-path"),
+            patch("taxcite.parse.parse_pdf", return_value=[]),
+            patch("taxcite.chunk.chunk_pages", return_value=chunks),
+            patch("taxcite.embed.embed_texts", return_value=[[0.0] * 1024] * len(chunks)),
+            patch("taxcite.db.get_connection", return_value=conn),
+            patch("taxcite.db.release_connection"),
+            patch("taxcite.db.upsert_chunk") as mock_upsert,
+            patch("taxcite.db.prune_chunks") as mock_prune,
+        ):
+            server._run_ingest_thread()
+
+            assert server._ingest["state"] == "ready"
+            assert mock_upsert.call_count == len(chunks)
+            for call in mock_upsert.call_args_list:
+                assert call.kwargs["commit"] is False
+            assert mock_prune.call_args.kwargs["commit"] is False
+            conn.commit.assert_called_once()
+            conn.rollback.assert_not_called()
+
+    def test_rolls_back_publication_on_db_error(self):
+        from taxcite import server
+        from taxcite.chunk import Chunk
+        from taxcite.manifest import Publication
+
+        pub = Publication("p501", "Test Pub")
+        chunks = [Chunk(pub_id="p501", ordinal=0, first_page=1, last_page=1, text="c0")]
+        conn = MagicMock()
+
+        with (
+            patch.dict(server._ingest, {}, clear=True),
+            patch("taxcite.manifest.CORPUS", (pub,)),
+            patch("taxcite.fetch.fetch_publication", return_value="ignored-path"),
+            patch("taxcite.parse.parse_pdf", return_value=[]),
+            patch("taxcite.chunk.chunk_pages", return_value=chunks),
+            patch("taxcite.embed.embed_texts", return_value=[[0.0] * 1024]),
+            patch("taxcite.db.get_connection", return_value=conn),
+            patch("taxcite.db.release_connection"),
+            patch("taxcite.db.upsert_chunk"),
+            patch("taxcite.db.prune_chunks", side_effect=psycopg2.OperationalError("connection reset")),
+        ):
+            server._run_ingest_thread()
+
+            assert server._ingest["state"] == "error"
+            conn.rollback.assert_called_once()
+            conn.commit.assert_not_called()
+
+    def test_unexpected_bug_class_propagates_instead_of_being_absorbed(self):
+        """A defect outside the narrowed except (e.g. an AttributeError from a
+        real code bug) must crash instead of being silently reported as an
+        ordinary ingest failure."""
+        from taxcite import server
+
+        with (
+            patch.dict(server._ingest, {}, clear=True),
+            patch("taxcite.db.get_connection", return_value=MagicMock()),
+            patch("taxcite.db.release_connection"),
+            patch("taxcite.fetch.fetch_publication", side_effect=AttributeError("real bug")),
+        ):
+            with pytest.raises(AttributeError):
+                server._run_ingest_thread()
 
 
 class TestAskResume:

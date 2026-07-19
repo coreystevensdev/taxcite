@@ -13,6 +13,8 @@ from dataclasses import dataclass
 
 from taxcite.parse import Page
 
+# Fixed constants tuned for the IRS pub corpus, not exposed as config: this
+# tool ingests one corpus, so there is no second use case to parameterize for.
 TARGET_CHARS = 1600
 MIN_CHARS = 200
 MAX_PARAGRAPH_CHARS = 400
