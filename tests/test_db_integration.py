@@ -24,11 +24,14 @@ _DIM = 1024
 
 @pytest.fixture
 def live_conn():
-    from taxcite.db import get_connection, release_connection, run_migration
+    from taxcite.db import close_pool, get_connection, release_connection, run_migration
     conn = get_connection()
     run_migration(conn)
     yield conn
     release_connection(conn)
+    # Tears the pool down (not just this connection) so later test modules in
+    # the same pytest process don't inherit a live pool when they mock get_connection.
+    close_pool()
 
 
 def _pub() -> str:
