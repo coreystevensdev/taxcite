@@ -48,19 +48,11 @@ Latest run, committed at `eval/report.json`:
 
 | Metric | Score |
 |---|---|
-| Faithfulness | 0.911 |
-| Answer relevancy | 0.576 |
-| Context precision | 0.759 |
+| Faithfulness | 0.945 |
+| Answer relevancy | 0.633 |
+| Context precision | 0.857 |
 
-Split by whether the question's ground truth is pinned to a tax year the ingested revision is not about:
-
-| Metric | All 50 | The 7 pinned to 2024 | The other 43 |
-|---|---|---|---|
-| Faithfulness | 0.911 | 0.749 | 0.938 |
-| Answer relevancy | 0.576 | 0.195 | 0.638 |
-| Context precision | 0.759 | 0.128 | 0.862 |
-
-Both numbers are real. The first is what this system scores against this dataset today; the second is what it scores on the questions the ingested publications can actually answer. The gap is a dataset-versus-corpus versioning problem, not a retrieval one, and it is described under Known Limitations.
+The corpus is pinned to a tax year, so these are measured against the publications the dataset was written against. Before pinning, `ingest` pulled whatever revision the IRS was currently serving: 7 of the 50 questions asked for 2024 figures the 2025 revisions do not contain, the agent correctly declined to state them, and Ragas scored those refusals as total misses. That alone was worth 0.759 against 0.857 on context precision and 0.911 against 0.945 on faithfulness.
 
 Retrieval pulls 24 candidates and a voyage `rerank-2` cross-encoder narrows them to the 8 the model reads. Vector search scores the query and the chunk in the same space independently, so it measures what a passage is about rather than whether it answers this question; a cross-encoder reads the pair together. Measured against the same corpus without it, context precision went 0.704 to 0.759 and faithfulness 0.891 to 0.911. Two reranked runs landed within 0.004 of each other on context precision, so those gaps are roughly sixteen and fourteen times the observed run-to-run spread. Answer relevancy moved down 0.023, under twice that spread, which is too small to call in either direction.
 
@@ -161,7 +153,7 @@ Traces show: LangGraph state transitions (retrieve -> human_review -> generate_a
 - Context window: retrieves top-8 chunks per question; multi-part questions spanning many publications may miss relevant context.
 - No OCR: `pdfplumber` extracts digital text only; scanned pages (some older IRS pubs) are silently skipped.
 - Per-instance state: both the rate limiter and the HITL `MemorySaver` checkpointer are in-process. Interrupted threads are lost on restart and not shared across replicas; replace `MemorySaver` with `PostgresSaver` for production durability.
-- **The dataset and the corpus can drift apart by a tax year, and that costs more than any tuning.** IRS publications are served from unversioned URLs, so `taxcite ingest` fetches whatever revision is current: the same command that pulled 2024 figures last year pulls 2025 ones now. Seven of the 50 questions have ground truth pinned to 2024, the ingested revision is 2025, and the agent correctly declines to state a 2024 figure it cannot see. Ragas scores that refusal as a total miss. Those seven questions score 0.128 context precision against 0.862 for the other 43. The report now records `corpus_tax_year`, flags each affected question, and publishes `metrics_excluding_year_mismatch` next to the headline, so the drift is visible rather than looking like a retrieval problem. Fixing it properly means either pinning the corpus by revision or versioning the dataset alongside it.
+- **The corpus is pinned to one tax year, and the dataset has to move with it.** `TAX_YEAR` in `manifest.py` selects which revision `ingest` fetches, from `pub/irs-prior` where publications are addressed by year, rather than `pub/irs-pdf` which always serves the current one. Changing it means rewriting the dataset's dollar figures to match; leaving them out of step scores correct refusals as failures, which is what happened before pinning. The report records `corpus_tax_year` and flags any question whose ground truth names a different one, so the two drifting apart is visible rather than looking like poor retrieval.
 - Answer relevancy at 0.60 is the weakest of the three metrics. Ragas scores it by generating questions from the answer and comparing them to the original, so verbose answers that cover more ground than was asked score lower.
 - Column detection is a heuristic: it looks for a density trough in word coverage across the page. It falls back to single-column when it finds none, which is right for covers and full-width tables, but an unusual layout could still be split in the wrong place.
 - Publications are ingested as static snapshots; re-ingest when IRS revises a publication (annual cycle for most).
