@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 DEFAULT_DATASET = Path(__file__).parent.parent.parent / "eval" / "dataset.jsonl"
@@ -109,6 +110,29 @@ def _judge_embeddings():
     return LangchainEmbeddingsWrapper(VoyageAIEmbeddings(model="voyage-3"))
 
 
+# A ground truth that opens "For 2024, ..." is pinned to a tax year. The IRS
+# serves every publication from an unversioned URL, so the same ingest command
+# fetches a different revision each January and a dataset written against last
+# year's figures starts scoring correct refusals as failures.
+_YEAR_IN_REFERENCE = re.compile(r"\bFor (20\d{2})\b|\b(20\d{2}) tax year\b")
+
+
+def _pinned_year(reference: str) -> str | None:
+    match = _YEAR_IN_REFERENCE.search(reference[:80])
+    if not match:
+        return None
+    return match.group(1) or match.group(2)
+
+
+def corpus_tax_year(chunks_text: list[str]) -> str | None:
+    """The year the ingested publications are actually about, by weight of mention."""
+    counts: dict[str, int] = {}
+    for text in chunks_text:
+        for year in re.findall(r"\b20[2-9]\d\b", text):
+            counts[year] = counts.get(year, 0) + 1
+    return max(counts, key=counts.get) if counts else None
+
+
 def _aggregate_metrics(scores) -> dict[str, float]:
     """Mean each metric column of a Ragas EvaluationResult.
 
@@ -120,6 +144,26 @@ def _aggregate_metrics(scores) -> dict[str, float]:
         name: round(float(df[name].mean()), 4)
         for name in METRIC_NAMES
         if name in df.columns
+    }
+
+
+def _aggregate_metrics_for(scores, rows: list[int]) -> dict[str, float]:
+    """Means over a subset of questions, by row index.
+
+    Reported alongside the headline so a reader can see what the corpus scores on
+    the questions it could actually answer, without that replacing the real
+    number. Both belong in the report: the lower one is what the system does
+    against this dataset today, the higher one is what it does when the dataset
+    and the ingested revision agree.
+    """
+    df = scores.to_pandas()
+    if not rows:
+        return {}
+    subset = df.iloc[rows]
+    return {
+        name: round(float(subset[name].mean()), 4)
+        for name in METRIC_NAMES
+        if name in subset.columns
     }
 
 
@@ -169,13 +213,31 @@ def run_eval(dataset_path: Path = DEFAULT_DATASET, report_path: Path = DEFAULT_R
     print("Scoring with Ragas...")
     scores = _score_with_ragas(records)
 
+    corpus_year = corpus_tax_year([c for r in records for c in r["retrieved_contexts"]])
+    per_question = []
+    for record, sample in zip(records, _per_sample_metrics(scores), strict=False):
+        pinned = _pinned_year(record["reference"])
+        per_question.append(
+            {
+                **record,
+                "scores": sample,
+                # the ground truth names a tax year the ingested revision is not
+                # about, so a correct refusal scores as a failure
+                "stale_ground_truth": bool(pinned and corpus_year and pinned != corpus_year),
+            }
+        )
+
     report = {
         "metrics": _aggregate_metrics(scores),
         "n_questions": len(items),
-        "per_question": [
-            {**record, "scores": sample}
-            for record, sample in zip(records, _per_sample_metrics(scores), strict=False)
+        "corpus_tax_year": corpus_year,
+        "ground_truth_year_mismatch": [
+            r["user_input"] for r in per_question if r.get("stale_ground_truth")
         ],
+        "metrics_excluding_year_mismatch": _aggregate_metrics_for(
+            scores, [i for i, r in enumerate(per_question) if not r.get("stale_ground_truth")]
+        ),
+        "per_question": per_question,
     }
 
     report_path.parent.mkdir(parents=True, exist_ok=True)
