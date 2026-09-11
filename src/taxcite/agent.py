@@ -109,7 +109,7 @@ def generate_answer(state: AgentState) -> dict:
         + "\n\nAnswer the question with inline citations, then call submit_answer."
     )
 
-    pre = cost.cap.check(0.0)
+    pre = cost.generation_cap.check(0.0)
     if not pre.allowed:
         raise cost.CostBudgetExceeded(f"pre-call budget check: {pre.trip}")
 
@@ -127,7 +127,7 @@ def generate_answer(state: AgentState) -> dict:
         response.usage.input_tokens * cost.ANTHROPIC_INPUT_COST_PER_TOKEN
         + response.usage.output_tokens * cost.ANTHROPIC_OUTPUT_COST_PER_TOKEN
     )
-    decision = cost.cap.evaluate(call_cost)
+    decision = cost.generation_cap.evaluate(call_cost)
     if not decision.allowed:
         raise cost.CostBudgetExceeded(
             f"generation blocked by cost cap ({decision.trip}): "

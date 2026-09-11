@@ -27,7 +27,7 @@ def _get_client() -> voyageai.Client:
 
 
 def _guard(total_tokens: int) -> None:
-    decision = cost.cap.evaluate(total_tokens * cost.VOYAGE_COST_PER_TOKEN)
+    decision = cost.embed_cap.evaluate(total_tokens * cost.VOYAGE_COST_PER_TOKEN)
     if not decision.allowed:
         raise cost.CostBudgetExceeded(
             f"embedding blocked by cost cap ({decision.trip}): "
