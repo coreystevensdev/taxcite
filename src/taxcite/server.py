@@ -9,7 +9,6 @@ from contextlib import asynccontextmanager
 from typing import Literal
 
 import psycopg2
-
 from fastapi import FastAPI, HTTPException, Request
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command

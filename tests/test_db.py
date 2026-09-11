@@ -52,14 +52,14 @@ def test_upsert_chunk_passes_numpy_array():
 
 
 def test_upsert_chunk_skips_commit_when_batching():
-    conn, cursor = _make_conn()
+    conn, _ = _make_conn()
     upsert_chunk(conn, CHUNK_A, EMBEDDING_A, commit=False)
     conn.commit.assert_not_called()
 
 
 def test_search_chunks_returns_chunk_list():
     rows = [("p501", 0, 1, 2, "standard deduction text")]
-    conn, cursor = _make_conn(rows=rows)
+    conn, _ = _make_conn(rows=rows)
     result = search_chunks(conn, EMBEDDING_A, top_k=3)
     assert len(result) == 1
     assert result[0] == CHUNK_A
@@ -74,7 +74,7 @@ def test_search_chunks_with_pub_filter():
 
 def test_count_chunks_returns_dict():
     rows = [("p501", 42), ("p590a", 18)]
-    conn, cursor = _make_conn(rows=rows)
+    conn, _ = _make_conn(rows=rows)
     result = count_chunks(conn)
     assert result == {"p501": 42, "p590a": 18}
 

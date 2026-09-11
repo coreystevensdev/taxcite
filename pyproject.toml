@@ -32,11 +32,15 @@ dependencies = [
 dev = [
   "pytest>=8",
   "pytest-httpx>=0.34",
-  "ruff>=0.4",
+  "ruff>=0.16,<0.17",
 ]
 eval = [
   "ragas>=0.2",
   "datasets>=2.20",
+  # ragas/llms/base.py imports langchain_community.chat_models.vertexai, which
+  # 0.4 removed. Without this bound `pip install .[eval]` resolves to a pair that
+  # cannot import ragas at all, so the eval extra was uninstallable as written.
+  "langchain-community>=0.3,<0.4",
 ]
 
 [tool.hatch.build.targets.wheel]

@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 FAKE_EMBEDDING = [[0.1] * 1024]
 
 
