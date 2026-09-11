@@ -1,7 +1,7 @@
 # TaxCite
 
 ![CI](https://github.com/coreystevensdev/taxcite/actions/workflows/tests.yml/badge.svg)
-![62 tests](https://img.shields.io/badge/tests-62-brightgreen)
+![78 tests](https://img.shields.io/badge/tests-78-brightgreen)
 
 [github.com/coreystevensdev/taxcite](https://github.com/coreystevensdev/taxcite)
 
@@ -42,7 +42,19 @@ The LangGraph state machine has five nodes with two conditional edges. `retrieve
 
 ## Eval Harness
 
-Ragas evaluation over 50 questions spanning all 14 ingested IRS publications, scoring faithfulness, answer relevancy, and context precision. Questions include numeric exact-match cases (dollar thresholds, age limits, percentages) and conceptual retrieval cases. Scoring uses Ragas with OpenAI as the judge LLM (`OPENAI_API_KEY`); the agent itself uses Anthropic + Voyage AI.
+Ragas evaluation over 50 questions spanning all 14 ingested IRS publications, scoring faithfulness, answer relevancy, and context precision. Questions include numeric exact-match cases (dollar thresholds, age limits, percentages) and conceptual retrieval cases. Claude judges and voyage-3 embeds, the same models the agent uses, so the eval needs no third provider.
+
+Latest run, committed at `eval/report.json`:
+
+| Metric | Score |
+|---|---|
+| Faithfulness | 0.891 |
+| Answer relevancy | 0.605 |
+| Context precision | 0.704 |
+
+Those numbers are worth reading alongside what they were a day earlier: **0.464 / 0.136 / 0.102**. The harness had never completed a run, so nothing had ever measured the retrieval path, and three bugs were sitting in it. PDF text came out of `pdfplumber` with the two columns zippered together, so every chunk was two half-sentences from unrelated passages. The IVFFlat index was created during migration, before any rows existed, and IVFFlat derives its centroids from the data present at build time, so on an empty table a query probed one meaningless list out of a hundred: 11 of the 50 questions retrieved nothing at all. Generation then ran at `max_tokens=1024`, which was survivable only while retrieval was returning nothing.
+
+Each one hid the next. An eval that has never run is not a weak signal, it is no signal.
 
 Run after ingestion:
 
@@ -137,7 +149,9 @@ Traces show: LangGraph state transitions (retrieve -> human_review -> generate_a
 - Context window: retrieves top-8 chunks per question; multi-part questions spanning many publications may miss relevant context.
 - No OCR: `pdfplumber` extracts digital text only; scanned pages (some older IRS pubs) are silently skipped.
 - Per-instance state: both the rate limiter and the HITL `MemorySaver` checkpointer are in-process. Interrupted threads are lost on restart and not shared across replicas; replace `MemorySaver` with `PostgresSaver` for production durability.
-- Ragas judge uses OpenAI by default: evaluation cost is separate from inference cost and requires an additional API key.
+- Context precision sits at 0.70, so roughly three in ten retrieved chunks are not relevant to the question. Top-8 retrieval with no reranking step is the likely cause.
+- Answer relevancy at 0.60 is the weakest of the three metrics. Ragas scores it by generating questions from the answer and comparing them to the original, so verbose answers that cover more ground than was asked score lower.
+- Column detection is a heuristic: it looks for a density trough in word coverage across the page. It falls back to single-column when it finds none, which is right for covers and full-width tables, but an unusual layout could still be split in the wrong place.
 - Publications are ingested as static snapshots; re-ingest when IRS revises a publication (annual cycle for most).
 
 ## License
