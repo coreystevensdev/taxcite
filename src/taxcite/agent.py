@@ -5,9 +5,9 @@ import os
 from typing import NotRequired, TypedDict
 
 import anthropic
-from langsmith import traceable
 from langgraph.graph import END, StateGraph
 from langgraph.types import interrupt
+from langsmith import traceable
 
 from taxcite import cost, db, embed
 from taxcite.chunk import Chunk
@@ -146,7 +146,7 @@ def generate_answer(state: AgentState) -> dict:
     return {"answer": text, "citations": []}
 
 
-def no_documents(state: AgentState) -> dict:  # noqa: ARG001
+def no_documents(state: AgentState) -> dict:
     return {
         "answer": (
             "No relevant IRS publication excerpts were found for this question. "
@@ -156,7 +156,7 @@ def no_documents(state: AgentState) -> dict:  # noqa: ARG001
     }
 
 
-def rejected(state: AgentState) -> dict:  # noqa: ARG001
+def rejected(state: AgentState) -> dict:
     return {"answer": "Review cancelled. The retrieved excerpts were not approved.", "citations": []}
 
 

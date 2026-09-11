@@ -56,9 +56,9 @@ def test_retrieve_closes_connection_on_search_error():
         patch("taxcite.agent.embed.embed_query", return_value=_FAKE_VEC),
         patch("taxcite.agent.db.get_connection", return_value=mock_conn),
         patch("taxcite.agent.db.search_chunks", side_effect=RuntimeError("db down")),
+        pytest.raises(RuntimeError),
     ):
-        with pytest.raises(RuntimeError):
-            retrieve(_EMPTY_STATE)
+        retrieve(_EMPTY_STATE)
 
     mock_conn.close.assert_called_once()
 
@@ -194,6 +194,7 @@ def test_build_graph_compiles_without_checkpointer():
 
 def test_build_graph_with_memory_checkpointer():
     from langgraph.checkpoint.memory import MemorySaver
+
     from taxcite.agent import build_graph
     graph = build_graph(checkpointer=MemorySaver())
     assert graph is not None

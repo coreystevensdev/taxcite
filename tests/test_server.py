@@ -236,9 +236,9 @@ class TestIngestThread:
             patch("taxcite.db.get_connection", return_value=MagicMock()),
             patch("taxcite.db.release_connection"),
             patch("taxcite.fetch.fetch_publication", side_effect=AttributeError("real bug")),
+            pytest.raises(AttributeError),
         ):
-            with pytest.raises(AttributeError):
-                server._run_ingest_thread()
+            server._run_ingest_thread()
 
 
 class TestAskResume:

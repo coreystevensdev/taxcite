@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -46,7 +46,7 @@ def fetch_publication(pub: Publication, data_dir: Path = DATA_DIR) -> Path:
                 "pub_id": pub.pub_id,
                 "sha256": digest,
                 "bytes": len(response.content),
-                "fetched_at": datetime.now(timezone.utc).isoformat(),
+                "fetched_at": datetime.now(UTC).isoformat(),
                 "changed": previous is not None,
             },
             indent=2,
