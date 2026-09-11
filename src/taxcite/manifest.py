@@ -1,15 +1,28 @@
-"""Corpus manifest: which IRS publications are in scope.
+"""Corpus manifest: which IRS publications are in scope, and for which tax year.
 
-irs.gov serves the current revision of every publication at a stable
-URL (pub/irs-pdf/p<number>.pdf), so the manifest pins identity, not
-version. Revision tracking happens at ingest time via content hash.
+pub/irs-pdf/p501.pdf always serves whatever revision is current, so an ingest run
+in December and the same run in February fetch different documents under the same
+name. This module used to use that URL and track revisions by content hash after
+the fact, which detects the change but does not stop it: the eval dataset's ground
+truth is pinned to a tax year, and once the IRS published the 2025 revisions the
+agent started correctly refusing to state 2024 figures and scoring zero for it.
+
+pub/irs-prior carries every publication addressed by year, so the corpus is
+reproducible. TAX_YEAR is the one the dataset is written against, and the two have
+to move together.
 """
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
-IRS_PDF_BASE = "https://www.irs.gov/pub/irs-pdf"
+IRS_PRIOR_BASE = "https://www.irs.gov/pub/irs-prior"
+
+# The tax year eval/dataset.jsonl's ground truth states. Changing this means
+# rewriting the dataset's dollar figures to match, or the eval scores correct
+# answers as wrong.
+TAX_YEAR = os.environ.get("TAXCITE_TAX_YEAR", "2024")
 
 
 @dataclass(frozen=True)
@@ -19,11 +32,13 @@ class Publication:
 
     @property
     def url(self) -> str:
-        return f"{IRS_PDF_BASE}/{self.pub_id}.pdf"
+        return f"{IRS_PRIOR_BASE}/{self.pub_id}--{TAX_YEAR}.pdf"
 
     @property
     def filename(self) -> str:
-        return f"{self.pub_id}.pdf"
+        # Year in the cache name, so switching TAX_YEAR does not silently reuse
+        # the other year's download.
+        return f"{self.pub_id}--{TAX_YEAR}.pdf"
 
 
 CORPUS: tuple[Publication, ...] = (
