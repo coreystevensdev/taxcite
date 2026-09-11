@@ -88,7 +88,7 @@ def test_embed_query_raises_cost_budget_exceeded_when_cap_trips(mock_get_client)
     tripped.observed = 0.20
     tripped.monthly_spend = 0.20
 
-    with patch.object(cost.cap, "evaluate", return_value=tripped):
+    with patch.object(cost.embed_cap, "evaluate", return_value=tripped):
         from taxcite.embed import embed_query
 
         with pytest.raises(CostBudgetExceeded, match="absolute-ceiling"):

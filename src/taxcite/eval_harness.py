@@ -14,6 +14,7 @@ RAGAS_LLM env var (see ragas docs).
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 DEFAULT_DATASET = Path(__file__).parent.parent.parent / "eval" / "dataset.jsonl"
@@ -73,7 +74,39 @@ def _score_with_ragas(records: list[dict]):
     return evaluate(
         dataset,
         metrics=[faithfulness, answer_relevancy, context_precision],
+        llm=_judge_llm(),
+        embeddings=_judge_embeddings(),
     )
+
+
+def _judge_llm():
+    """Claude as the judge, rather than whatever Ragas reaches for by default.
+
+    Left unset, `evaluate` builds an OpenAI client and fails on auth, which is a
+    third provider this project neither configures nor needs. `.env.example` still
+    lists OPENAI_API_KEY for that reason and the key on file was an Anthropic one,
+    so the eval could not have run as shipped.
+    """
+    from langchain_anthropic import ChatAnthropic
+    from ragas.llms import LangchainLLMWrapper
+
+    return LangchainLLMWrapper(
+        ChatAnthropic(
+            model=os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+            temperature=0,
+            max_tokens=8192,
+        )
+    )
+
+
+def _judge_embeddings():
+    """answer_relevancy embeds the generated question, so Ragas needs embeddings
+    of its own. Voyage again, so the judge measures distance the same way
+    retrieval does."""
+    from langchain_voyageai import VoyageAIEmbeddings
+    from ragas.embeddings import LangchainEmbeddingsWrapper
+
+    return LangchainEmbeddingsWrapper(VoyageAIEmbeddings(model="voyage-3"))
 
 
 def _aggregate_metrics(scores) -> dict[str, float]:
@@ -103,11 +136,15 @@ def run_eval(dataset_path: Path = DEFAULT_DATASET, report_path: Path = DEFAULT_R
         config = {"configurable": {"thread_id": f"eval-{i}"}}
         answer, contexts = _run_agent_on_question(graph, item["question"], config)
         records.append(
+            # ragas 0.4's column names. The old question/answer/contexts/ground_truth
+            # set still produces numbers, which is the trap: context_precision needs
+            # `reference` and silently scored against nothing under the old names,
+            # reporting 0.12 where the retrieval was fine.
             {
-                "question": item["question"],
-                "answer": answer,
-                "contexts": contexts if contexts else [""],
-                "ground_truth": item.get("ground_truth", ""),
+                "user_input": item["question"],
+                "response": answer,
+                "retrieved_contexts": contexts if contexts else [""],
+                "reference": item.get("ground_truth", ""),
             }
         )
         print(f"  answered: {item['question'][:60]}")

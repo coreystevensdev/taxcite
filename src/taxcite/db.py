@@ -29,9 +29,21 @@ CREATE TABLE IF NOT EXISTS chunks (
     UNIQUE (pub_id, ordinal)
 );
 
+-- HNSW, not IVFFlat. This statement runs at migration time, before a single row
+-- exists, and IVFFlat derives its centroids from the data present when the index
+-- is built: on an empty table it gets none, and a query then probes one
+-- meaningless list out of a hundred. That is not a slow search, it is a wrong
+-- one. Measured on the real corpus, a question whose answer sits in p936 returned
+-- 0 rows through the index and the correct 8 with enable_indexscan off.
+--
+-- lists = 100 was wrong for this corpus regardless. pgvector suggests rows/1000,
+-- so about 4 for 3.6k chunks, and 100 lists over 3,628 rows leaves ~36 vectors
+-- each while the default probes = 1 scans exactly one of them.
+--
+-- HNSW builds incrementally, needs no training pass, and does not care that the
+-- table is empty when the index is created.
 CREATE INDEX IF NOT EXISTS chunks_embedding_idx
-    ON chunks USING ivfflat (embedding vector_cosine_ops)
-    WITH (lists = 100);
+    ON chunks USING hnsw (embedding vector_cosine_ops);
 """
 
 

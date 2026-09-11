@@ -177,7 +177,7 @@ def test_generate_answer_raises_cost_budget_exceeded_when_cap_trips():
     with (
         patch("taxcite.agent.anthropic.Anthropic") as MockClient,
         patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}),
-        patch.object(cost.cap, "evaluate", return_value=tripped),
+        patch.object(cost.generation_cap, "evaluate", return_value=tripped),
     ):
         MockClient.return_value.messages.create.return_value = mock_response
         with pytest.raises(CostBudgetExceeded, match="monthly-budget"):
@@ -221,7 +221,7 @@ def test_generate_answer_pre_checks_budget_before_calling_llm():
     with (
         patch("taxcite.agent.anthropic.Anthropic") as MockClient,
         patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}),
-        patch.object(cost.cap, "check", return_value=blocked),
+        patch.object(cost.generation_cap, "check", return_value=blocked),
     ):
         with pytest.raises(CostBudgetExceeded, match="pre-call"):
             generate_answer(_state_with_chunks())
