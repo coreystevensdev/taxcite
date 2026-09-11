@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from taxcite.eval_harness import _aggregate_metrics
 
 
@@ -60,7 +62,7 @@ def test_aggregate_metrics_skips_missing_columns():
 def test_per_sample_metrics_keeps_each_question_score():
     """The report used to carry only column means, so comparing a retrieval change
     against a baseline could not be done as a paired test over the same questions."""
-    import pandas as pd
+    pd = pytest.importorskip("pandas")  # arrives with the eval extra, not with dev
 
     from taxcite.eval_harness import _per_sample_metrics
 
@@ -81,7 +83,7 @@ def test_per_sample_metrics_keeps_each_question_score():
 def test_per_sample_metrics_turns_nan_into_none():
     """Ragas leaves NaN where a metric could not be computed. json.dump writes that
     as bare NaN, which is not valid JSON and breaks anything reading the report."""
-    import pandas as pd
+    pd = pytest.importorskip("pandas")  # arrives with the eval extra, not with dev
 
     from taxcite.eval_harness import _per_sample_metrics
 
