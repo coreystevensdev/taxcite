@@ -5,6 +5,7 @@ from rolling_cost_cap import CostCap
 
 # Voyage AI voyage-3.5-lite: $0.02 per million tokens
 VOYAGE_COST_PER_TOKEN: float = 0.02 / 1_000_000
+VOYAGE_RERANK_COST_PER_TOKEN: float = 0.05 / 1_000_000
 
 # Anthropic claude-sonnet-4-6: $3/M input tokens, $15/M output tokens
 ANTHROPIC_INPUT_COST_PER_TOKEN: float = 3.0 / 1_000_000
@@ -24,6 +25,19 @@ embed_cap = CostCap(
     window=50,
     min_samples=5,
     absolute_ceiling=0.01,
+    monthly_budget=2.00,
+)
+
+# Its own window rather than sharing the embed one. Reranking costs about 2.5x
+# per token and sees a whole candidate set per call instead of one query, so the
+# two have different enough distributions that a shared rolling median would
+# describe neither. That is the same mistake that made generation unrunnable
+# after an ingest.
+rerank_cap = CostCap(
+    multiplier=3.0,
+    window=50,
+    min_samples=5,
+    absolute_ceiling=0.02,
     monthly_budget=2.00,
 )
 
