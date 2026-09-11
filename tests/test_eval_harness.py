@@ -90,3 +90,30 @@ def test_per_sample_metrics_turns_nan_into_none():
     scores = MagicMock()
     scores.to_pandas.return_value = pd.DataFrame({"faithfulness": [float("nan")]})
     assert _per_sample_metrics(scores) == [{"faithfulness": None}]
+
+
+def test_pinned_year_reads_the_tax_year_a_ground_truth_names():
+    from taxcite.eval_harness import _pinned_year
+
+    assert _pinned_year("For 2024, the standard deduction for a single filer is $14,600.") == "2024"
+    assert _pinned_year("The 2025 tax year limit is higher.") == "2025"
+    assert _pinned_year("Mortgage interest is deductible if the loan is secured.") is None
+
+
+def test_corpus_tax_year_picks_the_year_the_corpus_is_about():
+    from taxcite.eval_harness import corpus_tax_year
+
+    chunks = ["for 2025 the limit is", "in 2025 taxpayers may", "2024 figures shown for comparison"]
+    assert corpus_tax_year(chunks) == "2025"
+    assert corpus_tax_year(["no years here at all"]) is None
+
+
+def test_year_mismatch_is_what_makes_a_ground_truth_stale():
+    """A dataset written against 2024 publications scores a correct refusal as a
+    failure once the IRS serves the 2025 revision from the same URL."""
+    from taxcite.eval_harness import _pinned_year, corpus_tax_year
+
+    corpus = corpus_tax_year(["2025 " * 20, "2024"])
+    assert corpus == "2025"
+    pinned = _pinned_year("For 2024, the standard deduction for a single filer is $14,600.")
+    assert pinned != corpus
