@@ -45,9 +45,27 @@ def test_retrieve_embeds_question_and_returns_chunks():
         result = retrieve(_EMPTY_STATE)
 
     mock_embed.assert_called_once_with("Can I deduct mortgage interest?")
-    mock_search.assert_called_once_with(mock_conn, _FAKE_VEC, top_k=8)
+    # the wider candidate set, not the 8 the model ends up seeing: the reranker
+    # needs something to choose between
+    mock_search.assert_called_once_with(mock_conn, _FAKE_VEC, top_k=24)
     assert result["chunks"] == [_FAKE_CHUNK]
     mock_conn.close.assert_called_once()
+
+
+def test_retrieve_narrows_candidates_through_the_reranker():
+    mock_conn = MagicMock()
+    candidates = [_FAKE_CHUNK] * 24
+    reranked = [_FAKE_CHUNK] * 8
+    with (
+        patch("taxcite.agent.embed.embed_query", return_value=_FAKE_VEC),
+        patch("taxcite.agent.db.get_connection", return_value=mock_conn),
+        patch("taxcite.agent.db.search_chunks", return_value=candidates),
+        patch("taxcite.agent.rerank.rerank", return_value=reranked) as mock_rerank,
+    ):
+        result = retrieve(_EMPTY_STATE)
+
+    mock_rerank.assert_called_once_with("Can I deduct mortgage interest?", candidates, 8)
+    assert result["chunks"] == reranked
 
 
 def test_retrieve_closes_connection_on_search_error():

@@ -123,6 +123,23 @@ def _aggregate_metrics(scores) -> dict[str, float]:
     }
 
 
+def _per_sample_metrics(scores) -> list[dict[str, float]]:
+    """Each question's own scores, not just the column means.
+
+    Two runs of this harness differ by ordinary model variance, so comparing a
+    retrieval change against a baseline on aggregate numbers alone cannot separate
+    a real gain from noise. Keeping the per-question scores makes that a paired
+    comparison over the same 50 questions, which is a far sharper instrument and
+    costs nothing extra, the numbers are already computed.
+    """
+    df = scores.to_pandas()
+    present = [n for n in METRIC_NAMES if n in df.columns]
+    return [
+        {name: (None if (v := row[name]) != v else round(float(v), 4)) for name in present}
+        for _, row in df.iterrows()
+    ]
+
+
 def run_eval(dataset_path: Path = DEFAULT_DATASET, report_path: Path = DEFAULT_REPORT) -> dict:
     from langgraph.checkpoint.memory import MemorySaver
 
@@ -155,7 +172,10 @@ def run_eval(dataset_path: Path = DEFAULT_DATASET, report_path: Path = DEFAULT_R
     report = {
         "metrics": _aggregate_metrics(scores),
         "n_questions": len(items),
-        "per_question": records,
+        "per_question": [
+            {**record, "scores": sample}
+            for record, sample in zip(records, _per_sample_metrics(scores), strict=False)
+        ],
     }
 
     report_path.parent.mkdir(parents=True, exist_ok=True)

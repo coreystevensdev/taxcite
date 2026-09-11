@@ -9,11 +9,16 @@ from langgraph.graph import END, StateGraph
 from langgraph.types import interrupt
 from langsmith import traceable
 
-from taxcite import cost, db, embed
+from taxcite import cost, db, embed, rerank
 from taxcite.chunk import Chunk
 
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 MAX_CHUNKS = 8
+
+# Vector search pulls this many, the reranker narrows it to MAX_CHUNKS. Three to
+# one gives the reranker something to actually choose between without paying to
+# score a large candidate set on every question.
+RERANK_CANDIDATES = 24
 
 _SUBMIT_ANSWER_TOOL = {
     "name": "submit_answer",
@@ -62,9 +67,10 @@ def retrieve(state: AgentState) -> dict:
     query_vec = embed.embed_query(state["question"])
     conn = db.get_connection()
     try:
-        chunks = db.search_chunks(conn, query_vec, top_k=MAX_CHUNKS)
+        candidates = db.search_chunks(conn, query_vec, top_k=RERANK_CANDIDATES)
     finally:
         db.release_connection(conn)
+    chunks = rerank.rerank(state["question"], candidates, MAX_CHUNKS)
     return {"chunks": chunks}
 
 
