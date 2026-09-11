@@ -46,3 +46,13 @@ jobs:
 
       - name: Run tests
         run: pytest tests/ -v --tb=short -x
+
+      - name: README test count matches what pytest collects
+        run: |
+          n=$(pytest tests/ --collect-only -q | grep -oE '^[0-9]+ tests? collected' | grep -oE '^[0-9]+')
+          [ -n "$n" ] || { echo "could not parse a count out of pytest"; exit 1; }
+          fail=0
+          grep -q "tests-$n-brightgreen" README.md || { echo "badge does not say $n"; fail=1; }
+          grep -q "$n tests (pytest)" README.md || { echo "overview line does not say $n"; fail=1; }
+          [ "$fail" = 0 ] || { echo "pytest collects $n. Update both spots in README.md."; exit 1; }
+          echo "README agrees with pytest: $n"
