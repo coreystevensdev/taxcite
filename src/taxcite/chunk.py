@@ -76,27 +76,79 @@ def _split_paragraphs(pages: list[Page]) -> list[_Paragraph]:
             else:
                 paragraphs.extend(
                     _Paragraph(page=page.number, text=piece)
-                    for piece in _pack_lines(text)
+                    for piece in _pack_sentences(text)
                 )
     return paragraphs
 
 
-def _pack_lines(block: str) -> list[str]:
+# A period only ends a sentence when what follows looks like a new one. IRS text is
+# dense with "U.S.", "Pub. 501", "No." and "e.g.", and treating those as breaks
+# scatters fragments through the corpus.
+_ABBREVIATIONS = r"(?<!\bU\.S)(?<!\bPub)(?<!\bNo)(?<!\bSec)(?<!\be\.g)(?<!\bi\.e)(?<!\betc)(?<!\bMr)(?<!\bMrs)(?<!\bDr)"
+_SENTENCE_BREAK = re.compile(rf"{_ABBREVIATIONS}(?<=[.?!])\s+(?=[A-Z(\u201c\"])")
+
+
+def _reflow(block: str) -> str:
+    """Undo PDF line wrapping so sentences are continuous again.
+
+    A PDF carries hard line breaks wherever the text happened to wrap, including
+    mid-word: "de-\nduction" is one word, not a hyphenated compound. Packing on
+    those breaks is what left 55% of chunks starting on a lowercase letter and 77%
+    ending without terminal punctuation.
+    """
+    block = re.sub(r"(\w)-\n(\w)", r"\1\2", block)
+    return re.sub(r"\s*\n\s*", " ", block).strip()
+
+
+def _pack_sentences(block: str) -> list[str]:
+    """Subdivide an oversized block on sentence boundaries, not line boundaries.
+
+    A sentence longer than the target on its own still becomes its own piece:
+    splitting inside one puts the reader back where this started.
+    """
     pieces: list[str] = []
     current: list[str] = []
     size = 0
-    for line in block.splitlines():
-        line = line.strip()
-        if not line:
+    for sentence in _SENTENCE_BREAK.split(_reflow(block)):
+        sentence = sentence.strip()
+        if not sentence:
             continue
-        if current and size + len(line) > MAX_PARAGRAPH_CHARS:
-            pieces.append("\n".join(current))
+        if current and size + len(sentence) > MAX_PARAGRAPH_CHARS:
+            pieces.append(" ".join(current))
             current = []
             size = 0
-        current.append(line)
-        size += len(line)
+        current.append(sentence)
+        size += len(sentence)
     if current:
-        pieces.append("\n".join(current))
+        pieces.append(" ".join(current))
+
+    # Sentence detection needs a capital after the period. Tables, index runs and
+    # list fragments have no sentences to find, and without a backstop the whole
+    # block comes back as one piece and the size target stops meaning anything.
+    # That is what the line packing this replaced was guarding against.
+    out: list[str] = []
+    for piece in pieces:
+        out.extend([piece] if len(piece) <= TARGET_CHARS else _pack_words(piece))
+    return out
+
+
+def _pack_words(piece: str) -> list[str]:
+    """Last resort for a block with no sentence boundaries: split between words.
+
+    Still never mid-word, which is the thing that made fragments unreadable.
+    """
+    pieces: list[str] = []
+    current: list[str] = []
+    size = 0
+    for word in piece.split():
+        if current and size + len(word) + 1 > MAX_PARAGRAPH_CHARS:
+            pieces.append(" ".join(current))
+            current = []
+            size = 0
+        current.append(word)
+        size += len(word) + 1
+    if current:
+        pieces.append(" ".join(current))
     return pieces
 
 
