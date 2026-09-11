@@ -38,3 +38,7 @@ generation_cap = CostCap(
 
 class CostBudgetExceeded(RuntimeError):
     pass
+
+
+class AnswerTruncated(RuntimeError):
+    """The model ran out of tokens before completing its submit_answer call."""

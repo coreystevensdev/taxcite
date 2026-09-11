@@ -116,7 +116,11 @@ def generate_answer(state: AgentState) -> dict:
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     response = client.messages.create(
         model=ANTHROPIC_MODEL,
-        max_tokens=1024,
+        # 1024 was enough while retrieval was returning nothing and answers were a
+        # sentence long. With eight chunks of context the model writes a real
+        # answer, runs out mid tool call, and the submit_answer input arrives
+        # without its "answer" key.
+        max_tokens=4096,
         system=_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
         tools=[_SUBMIT_ANSWER_TOOL],
@@ -134,8 +138,18 @@ def generate_answer(state: AgentState) -> dict:
             f"${decision.observed:.6f} observed, ${decision.monthly_spend:.4f} monthly"
         )
 
+    if response.stop_reason == "max_tokens":
+        raise cost.AnswerTruncated(
+            f"model hit max_tokens before finishing submit_answer "
+            f"({response.usage.output_tokens} output tokens)"
+        )
+
     for block in response.content:
         if getattr(block, "type", None) == "tool_use" and block.name == "submit_answer":
+            if "answer" not in block.input:
+                # Reached here twice with truncated tool input, which surfaced as a
+                # bare KeyError from inside langgraph and took a traceback to place.
+                raise cost.AnswerTruncated(f"submit_answer returned no answer: {block.input!r}"[:200])
             return {
                 "answer": block.input["answer"],
                 "citations": block.input.get("citations", []),
