@@ -58,3 +58,46 @@ class TestChunkPages:
         huge = "q" * (TARGET_CHARS * 2)
         chunks = chunk_pages("p17", [page(1, "small intro.", huge, "small outro.")])
         assert any(huge in c.text for c in chunks)
+
+
+class TestSentenceBoundaries:
+    """Chunks used to start and end mid-word because oversized blocks were packed
+    on PDF line breaks, which fall wherever the text happened to wrap."""
+
+    def test_reflow_rejoins_a_word_broken_across_lines(self):
+        from taxcite.chunk import _reflow
+
+        assert _reflow("the standard de-\nduction is") == "the standard deduction is"
+
+    def test_reflow_joins_wrapped_lines_into_flowing_text(self):
+        from taxcite.chunk import _reflow
+
+        assert _reflow("you can claim\nthe credit") == "you can claim the credit"
+
+    def test_does_not_split_on_common_irs_abbreviations(self):
+        from taxcite.chunk import _pack_sentences
+
+        block = ("See Pub. 501 for the rules. " * 20) + ("It applies to U.S. filers only. " * 20)
+        for piece in _pack_sentences(block):
+            assert not piece.startswith("501")
+            assert not piece.startswith("filers")
+
+    def test_pieces_begin_at_a_sentence_not_mid_word(self):
+        from taxcite.chunk import _pack_sentences
+
+        block = " ".join(
+            f"This is sentence number {i} about deductions and credits." for i in range(40)
+        )
+        pieces = _pack_sentences(block)
+        assert len(pieces) > 1
+        assert all(p[0].isupper() for p in pieces)
+
+    def test_a_block_with_no_sentences_still_gets_split(self):
+        """Tables and index runs have no sentence boundaries. Without a backstop the
+        whole block came back as one 15,889-character chunk."""
+        from taxcite.chunk import TARGET_CHARS, _pack_sentences
+
+        block = " ".join(f"line {i} of dense body text." for i in range(400))
+        pieces = _pack_sentences(block)
+        assert len(pieces) > 1
+        assert all(len(p) <= TARGET_CHARS for p in pieces)
