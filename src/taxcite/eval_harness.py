@@ -16,7 +16,10 @@ from __future__ import annotations
 import json
 import os
 import re
+from datetime import datetime, timezone
 from pathlib import Path
+
+from taxcite.embed import EMBED_MODEL
 
 DEFAULT_DATASET = Path(__file__).parent.parent.parent / "eval" / "dataset.jsonl"
 DEFAULT_REPORT = Path(__file__).parent.parent.parent / "eval" / "report.json"
@@ -184,6 +187,38 @@ def _per_sample_metrics(scores) -> list[dict[str, float]]:
     ]
 
 
+def _provenance() -> dict:
+    """What produced these numbers.
+
+    A published score with no model version and no code revision cannot be
+    compared against anything later: a difference could be the retrieval change
+    you made or a model that moved under you, and nothing in the file tells you
+    which. That ambiguity cost a full re-run of the baseline to resolve once.
+    """
+    import subprocess
+
+    def git(*args: str) -> str | None:
+        try:
+            out = subprocess.run(
+                ["git", *args], capture_output=True, text=True, timeout=5, check=True
+            )
+            return out.stdout.strip() or None
+        except (subprocess.SubprocessError, OSError):
+            return None
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "generator_model": os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+        "judge_model": os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+        # The corpus and the Ragas judge do not use the same embedding model,
+        # so recording one number would misdescribe half the pipeline.
+        "corpus_embedding_model": EMBED_MODEL,
+        "judge_embedding_model": "voyage-3",
+        "git_revision": git("rev-parse", "HEAD"),
+        "git_dirty": bool(git("status", "--porcelain")),
+    }
+
+
 def run_eval(dataset_path: Path = DEFAULT_DATASET, report_path: Path = DEFAULT_REPORT) -> dict:
     from langgraph.checkpoint.memory import MemorySaver
 
@@ -228,6 +263,7 @@ def run_eval(dataset_path: Path = DEFAULT_DATASET, report_path: Path = DEFAULT_R
         )
 
     report = {
+        "provenance": _provenance(),
         "metrics": _aggregate_metrics(scores),
         "n_questions": len(items),
         "corpus_tax_year": corpus_year,
