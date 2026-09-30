@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from taxcite.embed import EMBED_MODEL
@@ -246,7 +246,7 @@ def _provenance() -> dict:
             return None
 
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "generator_model": os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
         "judge_model": os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
         # The corpus and the Ragas judge do not use the same embedding model,
