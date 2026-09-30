@@ -187,6 +187,45 @@ def _per_sample_metrics(scores) -> list[dict[str, float]]:
     ]
 
 
+# A judge call that fails leaves NaN, and pandas' mean skips NaN, so a run that
+# lost most of its scores still produces a confident headline. One did: 7 of 50
+# context_precision scores survived and the mean read 0.9195, higher than the
+# healthy run it was being compared against, because the questions that dropped
+# out were the hard ones. Losing a single flaky judge reply is tolerable; losing
+# the dataset is not a number worth publishing.
+MIN_SCORE_COVERAGE = 0.9
+
+
+def _score_coverage(per_question: list[dict]) -> dict[str, dict[str, int]]:
+    """How many questions actually produced a score, per metric."""
+    total = len(per_question)
+    coverage = {}
+    for name in METRIC_NAMES:
+        scored = sum(
+            1
+            for q in per_question
+            if (q.get("scores") or {}).get(name) is not None
+        )
+        if scored or any(name in (q.get("scores") or {}) for q in per_question):
+            coverage[name] = {"scored": scored, "of": total}
+    return coverage
+
+
+def check_coverage(coverage: dict[str, dict[str, int]]) -> None:
+    """Refuse to treat a run as publishable when the judges mostly did not answer."""
+    thin = [
+        f"{name} scored {c['scored']}/{c['of']}"
+        for name, c in coverage.items()
+        if c["of"] and c["scored"] / c["of"] < MIN_SCORE_COVERAGE
+    ]
+    if thin:
+        raise ValueError(
+            "eval run is not publishable, the judges did not score enough questions: "
+            + "; ".join(thin)
+            + f" (need {MIN_SCORE_COVERAGE:.0%}). Re-run; this is usually transient."
+        )
+
+
 def _provenance() -> dict:
     """What produced these numbers.
 
@@ -264,6 +303,7 @@ def run_eval(dataset_path: Path = DEFAULT_DATASET, report_path: Path = DEFAULT_R
 
     report = {
         "provenance": _provenance(),
+        "score_coverage": _score_coverage(per_question),
         "metrics": _aggregate_metrics(scores),
         "n_questions": len(items),
         "corpus_tax_year": corpus_year,
@@ -275,6 +315,9 @@ def run_eval(dataset_path: Path = DEFAULT_DATASET, report_path: Path = DEFAULT_R
         ),
         "per_question": per_question,
     }
+
+    # Before writing, not after: a thin run must not overwrite a good report.
+    check_coverage(report["score_coverage"])
 
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2))
