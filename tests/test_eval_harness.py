@@ -117,3 +117,81 @@ def test_year_mismatch_is_what_makes_a_ground_truth_stale():
     assert corpus == "2025"
     pinned = _pinned_year("For 2024, the standard deduction for a single filer is $14,600.")
     assert pinned != corpus
+
+
+class TestProvenance:
+    """A published score with no model version and no revision cannot be compared
+    against a later one: a difference could be the change you made or a model that
+    moved under you. Resolving that ambiguity once cost a full baseline re-run."""
+
+    def test_records_what_produced_the_numbers(self):
+        from taxcite.eval_harness import _provenance
+
+        p = _provenance()
+        assert p["generated_at"].endswith("+00:00")
+        assert p["generator_model"]
+        assert p["judge_model"]
+        # The corpus and the Ragas judge embed with different models; recording
+        # one would misdescribe half the pipeline.
+        assert p["corpus_embedding_model"] != p["judge_embedding_model"]
+        assert isinstance(p["git_dirty"], bool)
+
+    def test_honours_the_model_override(self, monkeypatch):
+        from taxcite.eval_harness import _provenance
+
+        monkeypatch.setenv("ANTHROPIC_MODEL", "claude-opus-5")
+        assert _provenance()["generator_model"] == "claude-opus-5"
+
+    def test_survives_a_missing_git(self, monkeypatch):
+        """Reports still have to be writable outside a checkout, e.g. in a container."""
+        import subprocess
+
+        from taxcite import eval_harness
+
+        def boom(*a, **k):
+            raise FileNotFoundError("git")
+
+        monkeypatch.setattr(subprocess, "run", boom)
+        p = eval_harness._provenance()
+        assert p["git_revision"] is None
+
+
+class TestScoreCoverage:
+    """Ragas returns NaN when a judge call fails, and pandas' mean skips NaN, so a
+    run that lost most of its scores still reports a confident headline. One did:
+    9/50, 14/50 and 7/50 scored, published as 0.9533 / 0.6766 / 0.9195, exit code
+    0, no error logged. The surviving questions skewed high, so the broken run
+    looked better than the healthy one it was compared against."""
+
+    def test_counts_how_many_questions_actually_scored(self):
+        from taxcite.eval_harness import _score_coverage
+
+        per_question = [
+            {"scores": {"faithfulness": 0.9, "context_precision": 1.0}},
+            {"scores": {"faithfulness": None, "context_precision": 0.5}},
+            {"scores": {"faithfulness": 0.8, "context_precision": None}},
+        ]
+        cov = _score_coverage(per_question)
+        assert cov["faithfulness"] == {"scored": 2, "of": 3}
+        assert cov["context_precision"] == {"scored": 2, "of": 3}
+
+    def test_rejects_a_run_that_lost_most_of_its_scores(self):
+        from taxcite.eval_harness import MIN_SCORE_COVERAGE, check_coverage
+
+        per_question = [{"scores": {"faithfulness": 0.9 if i < 7 else None}} for i in range(50)]
+        with pytest.raises(ValueError, match="faithfulness"):
+            check_coverage(_cov(per_question))
+        assert MIN_SCORE_COVERAGE > 0.5
+
+    def test_accepts_a_run_that_lost_one_judge_call(self):
+        """A single flaky judge reply should not throw away a 50-question run."""
+        from taxcite.eval_harness import check_coverage
+
+        per_question = [{"scores": {"faithfulness": None if i == 0 else 0.9}} for i in range(50)]
+        check_coverage(_cov(per_question))
+
+
+def _cov(per_question):
+    from taxcite.eval_harness import _score_coverage
+
+    return _score_coverage(per_question)

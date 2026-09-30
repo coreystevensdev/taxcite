@@ -1,13 +1,13 @@
 # TaxCite
 
 ![CI](https://github.com/coreystevensdev/taxcite/actions/workflows/tests.yml/badge.svg)
-![92 tests](https://img.shields.io/badge/tests-92-brightgreen)
+![98 tests](https://img.shields.io/badge/tests-98-brightgreen)
 
 [github.com/coreystevensdev/taxcite](https://github.com/coreystevensdev/taxcite)
 
 ## Overview
 
-Agentic RAG system that answers U.S. tax questions with page-level citations from IRS publications. 92 tests (pytest). Ragas eval harness for faithfulness, answer relevancy, and context precision.
+Agentic RAG system that answers U.S. tax questions with page-level citations from IRS publications. 98 tests (pytest). Ragas eval harness for faithfulness, answer relevancy, and context precision.
 
 ## Problem
 
