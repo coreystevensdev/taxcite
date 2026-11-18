@@ -7,7 +7,9 @@
 
 ## Overview
 
-Agentic RAG system that answers U.S. tax questions with page-level citations from IRS publications. 98 tests (pytest). Ragas eval harness for faithfulness, answer relevancy, and context precision.
+Ask a US tax question, get an answer that names the IRS publication and page it came from, so you can go read the source yourself rather than trusting the model.
+
+It is a retrieval-augmented generation pipeline over 14 IRS publications, with a human approval step before an answer is generated. Answer quality is measured rather than asserted: a Ragas harness scores faithfulness, answer relevancy and context precision over 50 questions, and the per-question scores are committed alongside the aggregates. 98 tests (pytest).
 
 ## Problem
 
