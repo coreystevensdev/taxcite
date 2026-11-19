@@ -193,6 +193,11 @@ def status() -> dict:
         conn = db.get_connection()
         try:
             counts = db.count_chunks(conn)
+        except psycopg2.Error:
+            # Before the first ingest the chunks table does not exist. This is
+            # the endpoint you check to find that out, so it reports an empty
+            # corpus rather than being the thing that fails.
+            logger.info("chunk counts unavailable; corpus not ingested yet")
         finally:
             db.release_connection(conn)
 

@@ -65,3 +65,28 @@ def test_status_does_not_leak_the_keys(client, monkeypatch):
     body = client.get("/status").text
 
     assert "secret-value" not in body
+
+
+def test_status_survives_a_database_with_no_schema_yet(client, monkeypatch):
+    """Before the first ingest the chunks table does not exist. /status is the
+    endpoint you check to find that out, so it cannot be the one that crashes:
+    it reported UndefinedTable as a 500 against a fresh database."""
+    import psycopg2
+
+    from taxcite import db
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://nobody@localhost/nothing")
+    monkeypatch.setattr(db, "get_connection", lambda: object())
+    monkeypatch.setattr(db, "release_connection", lambda c: None)
+
+    def no_table(_conn):
+        raise psycopg2.errors.UndefinedTable('relation "chunks" does not exist')
+
+    monkeypatch.setattr(db, "count_chunks", no_table)
+
+    resp = client.get("/status")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["chunks_by_pub"] == {}
+    assert body["answering"] == "not_configured"
