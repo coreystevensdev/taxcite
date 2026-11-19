@@ -131,6 +131,11 @@ jobs:
           [ "$ANTHROPIC_KEY" = "UNSET" ] && ANTHROPIC_KEY=""
           [ "$VOYAGE_KEY" = "UNSET" ] && VOYAGE_KEY=""
 
+          # The keys may legitimately be unset; the database may not. A container
+          # started without it serves an empty corpus and still looks healthy,
+          # which is how a deploy silently undid a finished ingest.
+          [ -n "$DATABASE_URL" ] || { echo "DATABASE_URL came back empty from SSM"; exit 1; }
+
           docker stop taxcite 2>/dev/null || true
           docker rm taxcite 2>/dev/null || true
 
@@ -149,9 +154,9 @@ jobs:
             -p 127.0.0.1:8085:8000 \
             --memory=512m \
             --memory-swap=768m \
-            -v /var/lib/taxcite:/state \
-            -e "TITLETRACE_SPEND_LEDGER=/state/spend.json" \
-            -e "TITLETRACE_QUOTA_LEDGER=/state/quota.json" \
+            -e "DATABASE_URL=$DATABASE_URL" \
+            -e "ANTHROPIC_API_KEY=$ANTHROPIC_KEY" \
+            -e "VOYAGE_API_KEY=$VOYAGE_KEY" \
             "$IMAGE"
 
           for i in $(seq 1 24); do
