@@ -1,7 +1,7 @@
 # TaxCite
 
 ![CI](https://github.com/coreystevensdev/taxcite/actions/workflows/tests.yml/badge.svg)
-![118 tests](https://img.shields.io/badge/tests-118-brightgreen)
+![119 tests](https://img.shields.io/badge/tests-119-brightgreen)
 
 [github.com/coreystevensdev/taxcite](https://github.com/coreystevensdev/taxcite)
 
@@ -9,7 +9,7 @@
 
 Ask a US tax question, get an answer that names the IRS publication and page it came from, so you can go read the source yourself rather than trusting the model.
 
-It is a retrieval-augmented generation pipeline over 14 IRS publications, with a human approval step before an answer is generated. Answer quality is measured rather than asserted: a Ragas harness scores faithfulness, answer relevancy and context precision over 50 questions, and the per-question scores are committed alongside the aggregates. 118 tests (pytest).
+It is a retrieval-augmented generation pipeline over 14 IRS publications, with a human approval step before an answer is generated. Answer quality is measured rather than asserted: a Ragas harness scores faithfulness, answer relevancy and context precision over 50 questions, and the per-question scores are committed alongside the aggregates. 119 tests (pytest).
 
 ## Problem
 
