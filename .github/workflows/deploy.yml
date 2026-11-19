@@ -136,6 +136,11 @@ jobs:
           # which is how a deploy silently undid a finished ingest.
           [ -n "$DATABASE_URL" ] || { echo "DATABASE_URL came back empty from SSM"; exit 1; }
 
+          # Exported rather than passed as -e NAME=value. Docker puts argv in the
+          # process table, so the value form shows both keys and the connection
+          # string to anything that can run ps on this box.
+          export DATABASE_URL ANTHROPIC_API_KEY="$ANTHROPIC_KEY" VOYAGE_API_KEY="$VOYAGE_KEY"
+
           docker stop taxcite 2>/dev/null || true
           docker rm taxcite 2>/dev/null || true
 
@@ -154,9 +159,9 @@ jobs:
             -p 127.0.0.1:8085:8000 \
             --memory=512m \
             --memory-swap=768m \
-            -e "DATABASE_URL=$DATABASE_URL" \
-            -e "ANTHROPIC_API_KEY=$ANTHROPIC_KEY" \
-            -e "VOYAGE_API_KEY=$VOYAGE_KEY" \
+            -e DATABASE_URL \
+            -e ANTHROPIC_API_KEY \
+            -e VOYAGE_API_KEY \
             "$IMAGE"
 
           for i in $(seq 1 24); do
