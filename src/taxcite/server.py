@@ -206,9 +206,29 @@ def status() -> dict:
     return body
 
 
+# Both vendors are read deep inside graph nodes, where a missing key surfaces as
+# a KeyError and reaches the caller as a 500 with a stack trace. Checked up front
+# instead, so a deployment without them says so rather than looking broken.
+_REQUIRED_KEYS = ("VOYAGE_API_KEY", "ANTHROPIC_API_KEY")
+
+
+def _require_vendor_keys() -> None:
+    missing = [k for k in _REQUIRED_KEYS if not os.environ.get(k)]
+    if missing:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Question answering is not configured on this deployment: "
+                + ", ".join(missing)
+                + " is unset. The evaluation report at / needs neither and is unaffected."
+            ),
+        )
+
+
 @app.post("/ask")
 @limiter.limit("10/minute")
 def ask(request: Request, req: AskRequest) -> AskCompleteResponse | AskAwaitingResponse:
+    _require_vendor_keys()
     thread_id = str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
     initial: AgentState = {

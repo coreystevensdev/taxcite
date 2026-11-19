@@ -49,6 +49,16 @@ class TestHealth:
         assert resp.json() == {"status": "ok"}
 
 
+@pytest.fixture(autouse=True)
+def configured_deployment(monkeypatch):
+    """These tests patch the graph, so the vendor keys never get used. /ask now
+    refuses up front when they are unset, which is a precondition these tests
+    always assumed and never stated. tests/test_ask_without_keys.py covers the
+    unset case."""
+    monkeypatch.setenv("VOYAGE_API_KEY", "test-voyage-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
+
+
 class TestAsk:
     def test_returns_complete_answer_and_citations(self):
         citations = [{"pub_id": "p17", "first_page": 3, "last_page": 4}]
