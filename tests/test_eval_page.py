@@ -117,3 +117,31 @@ def test_the_exact_zeros_are_still_there_and_still_contradicted(client):
 
     page = client.get("/").text
     assert "Exact zero while faithfulness" in page
+
+
+def test_the_page_leads_with_the_ask_box_not_the_eval(client):
+    """The eval is the stronger artifact but it is the second thing, because a
+    reader has to see what the product does before a score about it means
+    anything."""
+    body = client.get("/").text
+
+    ask_at = body.index('id="askform"')
+    eval_at = body.index('id="agg"')
+    assert ask_at < eval_at, "the eval strip comes before the ask box"
+
+
+def test_the_page_reads_the_answering_mode(client):
+    body = client.get("/").text
+
+    assert "/status" in body
+    assert "answering" in body
+    assert "recorded" in body, "no fallback for a deployment without keys"
+
+
+def test_the_recorded_fallback_cannot_pass_as_live(client):
+    """A recorded answer shown without saying so is a claim about what this
+    deployment can do."""
+    body = client.get("/").text
+
+    assert "Answering is not configured on this deployment" in body
+    assert "Not generated now." in body

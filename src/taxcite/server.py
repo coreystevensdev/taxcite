@@ -196,7 +196,15 @@ def status() -> dict:
         finally:
             db.release_connection(conn)
 
-    body: dict = {"ingest": _ingest["state"], "chunks_by_pub": counts}
+    # The page needs to know this before it renders a control that may not work.
+    # Names only, never values: this endpoint is public.
+    answering = "live" if all(os.environ.get(k) for k in _REQUIRED_KEYS) else "not_configured"
+
+    body: dict = {
+        "ingest": _ingest["state"],
+        "chunks_by_pub": counts,
+        "answering": answering,
+    }
     if "stage" in _ingest:
         body["stage"] = _ingest["stage"]
     if "error" in _ingest:

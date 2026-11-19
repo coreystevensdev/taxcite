@@ -97,6 +97,59 @@ h1 .cite { color: var(--accent); }
 .caveat { font-size: 14px; color: var(--ink-soft); margin: 0 0 26px;
           border-left: 3px solid var(--mid); padding: 9px 14px; background: var(--mid-wash); }
 
+/* Ask */
+.ask { margin-bottom: 34px; }
+.askrow { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.ask input[type=text] {
+  flex: 1 1 340px; min-width: 0;
+  font-family: var(--body); font-size: 16px; padding: 13px 15px;
+  background: var(--surface); color: var(--ink);
+  border: 1.5px solid var(--rule); border-radius: 2px;
+}
+.ask input[type=text]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+.ask button.go {
+  font-family: var(--display); font-weight: 700; font-size: 15px; letter-spacing: .04em;
+  text-transform: uppercase; padding: 13px 26px; cursor: pointer;
+  background: var(--accent); color: var(--accent-ink);
+  border: 1.5px solid var(--accent); border-radius: 2px;
+}
+.ask button.go:hover { filter: brightness(1.08); }
+.ask button.go:disabled { opacity: .55; cursor: progress; }
+.ask button.go:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.suggest { display: flex; gap: 7px; flex-wrap: wrap; align-items: baseline; }
+.suggest .lbl { font-family: var(--mono); font-size: 11px; letter-spacing: .1em;
+                text-transform: uppercase; color: var(--muted); }
+.suggest button {
+  font-family: var(--body); font-size: 13.5px; padding: 5px 11px; cursor: pointer;
+  background: transparent; color: var(--ink-soft);
+  border: 1px solid var(--rule); border-radius: 999px;
+}
+.suggest button:hover { border-color: var(--accent); color: var(--accent); }
+
+.answer-card { margin-top: 18px; border: 1px solid var(--rule); background: var(--surface); display: none; }
+.answer-card.on { display: block; }
+.answer-card .mode {
+  display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
+  padding: 10px 16px; border-bottom: 1px solid var(--rule-soft); background: var(--surface-2);
+  font-size: 13px; color: var(--ink-soft);
+}
+.answer-card .mode .badge {
+  font-family: var(--mono); font-size: 10.5px; font-weight: 600; letter-spacing: .11em;
+  text-transform: uppercase; padding: 3px 8px; border-radius: 2px;
+  background: var(--accent-wash); color: var(--accent); border: 1px solid var(--accent);
+}
+.answer-card .text { padding: 16px; white-space: pre-wrap; }
+.answer-card .cites { padding: 0 16px 16px; display: flex; gap: 7px; flex-wrap: wrap; }
+.answer-card .cite-chip {
+  font-family: var(--mono); font-size: 11.5px; padding: 4px 10px;
+  background: var(--accent-wash); color: var(--accent); border-radius: 2px;
+}
+.proof {
+  border-left: 3px solid var(--accent); background: var(--surface);
+  padding: 14px 16px; margin-top: 18px; font-size: 14.5px; color: var(--ink-soft);
+}
+.proof a { color: var(--accent); font-weight: 600; }
+
 .bar { display: flex; align-items: center; justify-content: space-between; gap: 14px;
        flex-wrap: wrap; margin-bottom: 14px; }
 h2 { font-family: var(--display); font-weight: 700; font-size: 19px; letter-spacing: .01em;
@@ -187,13 +240,34 @@ footer a { color: var(--accent); }
 <header>
   <h1>Tax<span class="cite">Cite</span> Eval</h1>
   <p class="lede">
-    Fifty tax questions, each answered from a corpus of IRS publications and then scored.
-    This is the whole record: what was asked, what came back, the passages retrieval pulled,
-    and what each answer earned. Including the ones it did badly on.
+    Ask a tax question and get an answer with the IRS publication it came from, so you can
+    go and check it. Below the answer is the part most of these leave out: fifty questions
+    put through the same pipeline and scored, including the ones it did worst on.
   </p>
   <p class="corpus" id="corpus"></p>
 </header>
 
+<section class="ask">
+  <form id="askform">
+    <div class="askrow">
+      <label for="q" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Your tax question</label>
+      <input type="text" id="q" autocomplete="off"
+             placeholder="Can I deduct mortgage interest on my primary home?">
+      <button type="submit" class="go" id="go">Ask</button>
+    </div>
+    <div class="suggest" id="suggest"><span class="lbl">Try</span></div>
+  </form>
+
+  <div class="answer-card" id="answer">
+    <div class="mode"><span class="badge" id="ansmode"></span><span id="answhy"></span></div>
+    <div class="text" id="anstext"></div>
+    <div class="cites" id="anscites"></div>
+  </div>
+
+  <p class="proof" id="proof"></p>
+</section>
+
+<h2 id="evalhead" style="margin-bottom:10px">How well it does this, measured</h2>
 <div class="agg" id="agg"></div>
 <p class="caveat" id="caveat"></p>
 
@@ -359,9 +433,128 @@ $("sorts").addEventListener("click", (e) => {
   renderList();
 });
 
+const RECORDED = new Map();
+let answering = "not_configured";
+
+function citeChips(contexts) {
+  const pubs = [];
+  for (const c of contexts) {
+    const p = pubOf(c);
+    if (p && !pubs.includes(p)) pubs.push(p);
+  }
+  return pubs;
+}
+
+function showAnswer({mode, why, text, cites}) {
+  $("ansmode").textContent = mode;
+  $("answhy").textContent = why;
+  $("anstext").textContent = text;
+  $("anscites").innerHTML = (cites || [])
+    .map(c => `<span class="cite-chip">${esc(c)}</span>`).join("");
+  $("answer").classList.add("on");
+}
+
+async function ask(question) {
+  const btn = $("go");
+  btn.disabled = true;
+  const was = btn.textContent;
+  btn.textContent = "Asking";
+
+  try {
+    if (answering === "live") {
+      const res = await fetch("/ask", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({question}),
+      });
+      const d = await res.json();
+      if (!res.ok) {
+        showAnswer({mode: "unavailable", why: d.detail || `HTTP ${res.status}`, text: "", cites: []});
+        return;
+      }
+      showAnswer({
+        mode: "live",
+        why: "Generated now, from the embedded corpus.",
+        text: d.answer || "",
+        cites: (d.citations || []).map(c => `Pub. ${c.pub_id} p.${c.first_page}`),
+      });
+      return;
+    }
+
+    // Answering is off, so the only honest answers are the ones already run.
+    // Matched loosely, because nobody types one of fifty questions verbatim.
+    const key = question.trim().toLowerCase().replace(/[^a-z0-9 ]/g, "");
+    let hit = RECORDED.get(key);
+    if (!hit) {
+      const words = key.split(/\s+/).filter(w => w.length > 3);
+      let best = 0;
+      for (const [k, v] of RECORDED) {
+        const score = words.filter(w => k.includes(w)).length / Math.max(words.length, 1);
+        if (score > best) { best = score; hit = v; }
+      }
+      if (best < 0.5) hit = null;
+    }
+
+    if (hit) {
+      showAnswer({
+        mode: "recorded",
+        why: `Answering is not configured on this deployment, so this is the run already on record for "${hit.user_input}". Not generated now.`,
+        text: hit.response,
+        cites: citeChips(hit.retrieved_contexts),
+      });
+    } else {
+      showAnswer({
+        mode: "not recorded",
+        why: "Answering is not configured on this deployment, and that question is not one of the fifty already run. Pick one below, or read the scored runs underneath.",
+        text: "",
+        cites: [],
+      });
+    }
+  } catch (e) {
+    showAnswer({mode: "error", why: "The request did not complete.", text: "", cites: []});
+  } finally {
+    btn.disabled = false;
+    btn.textContent = was;
+  }
+}
+
+$("askform").addEventListener("submit", (e) => {
+  e.preventDefault();
+  ask($("q").value.trim() || $("q").placeholder);
+});
+
+function wireAsk() {
+  for (const q of data.per_question) {
+    RECORDED.set(q.user_input.trim().toLowerCase().replace(/[^a-z0-9 ]/g, ""), q);
+  }
+  // Three that read as things a person would actually ask.
+  const picks = data.per_question.slice(0, 3);
+  $("suggest").innerHTML = '<span class="lbl">Try</span>' + picks.map(q =>
+    `<button type="button" data-q="${esc(q.user_input)}">${esc(q.user_input.length > 58 ? q.user_input.slice(0, 55) + "..." : q.user_input)}</button>`
+  ).join("");
+  $("suggest").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    $("q").value = b.dataset.q;
+    ask(b.dataset.q);
+  });
+
+  const m = data.metrics;
+  $("proof").innerHTML =
+    `Every answer above comes from the same pipeline that was scored below: ` +
+    `<strong>${data.n_questions} questions</strong>, faithfulness <strong>${n3(m.faithfulness)}</strong>, ` +
+    `${data.per_question.filter(q => q.scores.faithfulness === 1).length} of them perfect. ` +
+    `<a href="#evalhead">See where it did worst</a>.`;
+}
+
+fetch("/status")
+  .then(r => r.ok ? r.json() : {answering: "not_configured"})
+  .then(s => { answering = s.answering || "not_configured"; })
+  .catch(() => {});
+
 fetch("/eval/report.json")
   .then(r => r.ok ? r.json() : Promise.reject(new Error(r.status)))
-  .then(d => { data = d; renderAggregate(); renderList(); })
+  .then(d => { data = d; renderAggregate(); renderList(); wireAsk(); })
   .catch(() => { $("loading").textContent = "The eval report could not be loaded."; });
 </script>
 </body>
