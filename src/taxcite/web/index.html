@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TaxCite Eval</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Archivo+Narrow:wght@500;600;700&family=Azeret+Mono:wght@400;500;600&display=swap">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%23F5F4F0'/><rect x='3' y='3' width='10' height='1.6' fill='%237B2D3B'/><rect x='3' y='7' width='7' height='1.6' fill='%237B2D3B'/><rect x='3' y='11' width='9' height='1.6' fill='%23A8A299'/></svg>">
+<style>
+:root {
+  --ground: #F5F4F0;
+  --surface: #FFFFFE;
+  --surface-2: #EAE8E2;
+  --ink: #1C1A18;
+  --ink-soft: #46423D;
+  --muted: #7C766D;
+  --rule: #D5D1C8;
+  --rule-soft: #E3E0D8;
+
+  /* The one signature colour: citations, interaction, editorial emphasis.
+     Scores never use it, so a measurement can never read as a link. */
+  --accent: #7B2D3B;
+  --accent-ink: #FFFFFF;
+  --accent-wash: #F2E2E4;
+
+  /* Restricted score set. Allowed on bars, chips and the aggregate strip. */
+  --strong: #2E6B4F;
+  --strong-wash: #E2EDE6;
+  --mid: #9A6B1E;
+  --mid-wash: #F4EADA;
+  --weak: #A33A30;
+  --weak-wash: #F6E2DF;
+
+  --display: "Archivo Narrow", "Helvetica Neue", Arial, sans-serif;
+  --body: "Source Serif 4", Georgia, serif;
+  --mono: "Azeret Mono", ui-monospace, Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #161513;
+    --surface: #1E1C1A;
+    --surface-2: #292725;
+    --ink: #EDEAE4;
+    --ink-soft: #C4BFB6;
+    --muted: #918B81;
+    --rule: #37342F;
+    --rule-soft: #2C2926;
+    --accent: #D98A95;
+    --accent-ink: #161513;
+    --accent-wash: #331F23;
+    --strong: #7FBF9C;
+    --strong-wash: #17281F;
+    --mid: #D9AE6A;
+    --mid-wash: #2C2416;
+    --weak: #DE8C82;
+    --weak-wash: #2E1C19;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #161513; --surface: #1E1C1A; --surface-2: #292725;
+  --ink: #EDEAE4; --ink-soft: #C4BFB6; --muted: #918B81;
+  --rule: #37342F; --rule-soft: #2C2926;
+  --accent: #D98A95; --accent-ink: #161513; --accent-wash: #331F23;
+  --strong: #7FBF9C; --strong-wash: #17281F;
+  --mid: #D9AE6A; --mid-wash: #2C2416;
+  --weak: #DE8C82; --weak-wash: #2E1C19;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--ground); color: var(--ink);
+  font-family: var(--body); font-size: 16.5px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1040px; margin: 0 auto; padding: 36px 22px 80px; }
+
+header { border-bottom: 3px double var(--rule); padding-bottom: 20px; margin-bottom: 22px; }
+h1 {
+  font-family: var(--display); font-weight: 700; font-size: 33px;
+  letter-spacing: -.004em; margin: 0 0 6px; text-transform: uppercase;
+}
+h1 .cite { color: var(--accent); }
+.lede { color: var(--ink-soft); max-width: 64ch; margin: 0; }
+.corpus { font-family: var(--mono); font-size: 11.5px; color: var(--muted); margin-top: 12px; }
+
+/* Aggregate strip */
+.agg { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1px;
+       background: var(--rule-soft); border: 1px solid var(--rule); margin-bottom: 8px; }
+.agg > div { background: var(--surface); padding: 14px 16px; }
+.agg .k { font-family: var(--display); font-size: 11px; font-weight: 600; letter-spacing: .1em;
+          text-transform: uppercase; color: var(--muted); }
+.agg .v { font-family: var(--mono); font-weight: 600; font-size: 25px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.agg .n { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.caveat { font-size: 14px; color: var(--ink-soft); margin: 0 0 26px;
+          border-left: 3px solid var(--mid); padding: 9px 14px; background: var(--mid-wash); }
+
+.bar { display: flex; align-items: center; justify-content: space-between; gap: 14px;
+       flex-wrap: wrap; margin-bottom: 14px; }
+h2 { font-family: var(--display); font-weight: 700; font-size: 19px; letter-spacing: .01em;
+     text-transform: uppercase; margin: 0; }
+.sorts { display: flex; gap: 6px; flex-wrap: wrap; }
+.sorts button {
+  font-family: var(--mono); font-size: 12px; padding: 6px 12px; cursor: pointer;
+  background: transparent; color: var(--ink-soft);
+  border: 1px solid var(--rule); border-radius: 2px;
+}
+.sorts button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.sorts button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+/* Question rows */
+ol.qs { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+ol.qs > li { border-bottom: 1px solid var(--rule-soft); }
+.q {
+  width: 100%; text-align: left; cursor: pointer; background: transparent; border: 0;
+  padding: 14px 4px; display: grid; gap: 4px 16px; align-items: baseline;
+  grid-template-columns: 2.4rem 1fr auto; color: inherit; font: inherit;
+}
+.q:hover { background: var(--surface); }
+.q:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.q .num { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.q .text { font-size: 15.5px; }
+.q .marks { display: flex; gap: 5px; }
+.mark {
+  font-family: var(--mono); font-size: 11px; font-weight: 600; padding: 2px 7px;
+  border-radius: 2px; white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.mark.strong { background: var(--strong-wash); color: var(--strong); }
+.mark.mid { background: var(--mid-wash); color: var(--mid); }
+.mark.weak { background: var(--weak-wash); color: var(--weak); }
+
+.detail { padding: 4px 4px 24px 2.4rem; display: none; }
+.detail.open { display: block; }
+.detail h3 {
+  font-family: var(--display); font-size: 11.5px; font-weight: 600; letter-spacing: .11em;
+  text-transform: uppercase; color: var(--muted); margin: 20px 0 7px;
+  padding-bottom: 5px; border-bottom: 1px solid var(--rule-soft);
+}
+.detail h3:first-child { margin-top: 6px; }
+.answer { white-space: pre-wrap; }
+.ref { white-space: pre-wrap; color: var(--ink-soft); border-left: 3px solid var(--rule); padding-left: 14px; }
+
+.scorecard { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.scorecard .s { border: 1px solid var(--rule); padding: 10px 12px; background: var(--surface); }
+.scorecard .s .lbl { font-family: var(--display); font-size: 10.5px; font-weight: 600;
+                     letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.scorecard .s .flag {
+  font-size: 12.5px; line-height: 1.45; color: var(--mid);
+  background: var(--mid-wash); padding: 7px 9px; margin-top: 8px;
+}
+.scorecard .s .val { font-family: var(--mono); font-size: 19px; font-weight: 600; margin: 3px 0 6px; }
+.track { height: 5px; background: var(--surface-2); }
+.track span { display: block; height: 100%; }
+.track span.strong { background: var(--strong); }
+.track span.mid { background: var(--mid); }
+.track span.weak { background: var(--weak); }
+
+.ctxs { display: flex; flex-direction: column; gap: 9px; }
+.ctx { border: 1px solid var(--rule); background: var(--surface); }
+.ctx summary {
+  cursor: pointer; padding: 9px 12px; font-family: var(--mono); font-size: 11.5px;
+  color: var(--muted); display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
+}
+.ctx summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ctx summary .pub { color: var(--accent); font-weight: 600; }
+.ctx .body { padding: 0 12px 12px; font-size: 14px; color: var(--ink-soft); white-space: pre-wrap; }
+
+footer { margin-top: 44px; padding-top: 18px; border-top: 1px solid var(--rule);
+         font-size: 14px; color: var(--muted); }
+footer a { color: var(--accent); }
+.loading { font-family: var(--mono); font-size: 13px; color: var(--muted); padding: 28px 0; }
+
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+@media (max-width: 620px) {
+  .wrap { padding: 26px 15px 60px; }
+  .q { grid-template-columns: 1fr; }
+  .q .marks { grid-column: 1; }
+  .detail { padding-left: 0; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Tax<span class="cite">Cite</span> Eval</h1>
+  <p class="lede">
+    Fifty tax questions, each answered from a corpus of IRS publications and then scored.
+    This is the whole record: what was asked, what came back, the passages retrieval pulled,
+    and what each answer earned. Including the ones it did badly on.
+  </p>
+  <p class="corpus" id="corpus"></p>
+</header>
+
+<div class="agg" id="agg"></div>
+<p class="caveat" id="caveat"></p>
+
+<div class="bar">
+  <h2>The fifty runs</h2>
+  <div class="sorts" id="sorts">
+    <button data-sort="worst" aria-pressed="true">Worst first</button>
+    <button data-sort="best" aria-pressed="false">Best first</button>
+    <button data-sort="order" aria-pressed="false">As evaluated</button>
+  </div>
+</div>
+
+<p class="loading" id="loading">Loading the committed eval report</p>
+<ol class="qs" id="qs"></ol>
+
+<footer>
+  <p>
+    Scored with Ragas over a LangGraph pipeline: pgvector retrieval, voyage-3 embeddings,
+    a rerank-2 cross-encoder, and a human approval step before generation. Nothing on this
+    page is generated live. It is <code>eval/report.json</code> as committed.
+    <a href="https://github.com/coreystevensdev/taxcite">Source</a>.
+  </p>
+</footer>
+
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const band = (v) => v >= 0.85 ? "strong" : v >= 0.6 ? "mid" : "weak";
+const n3 = (v) => v == null ? "n/a" : Number(v).toFixed(3);
+
+const METRICS = [
+  ["faithfulness", "Faithfulness", "Is every claim in the answer supported by a retrieved passage?"],
+  ["answer_relevancy", "Answer relevancy", "Ragas generates questions from the answer and compares them to the real one, so a thorough answer scores lower."],
+  ["context_precision", "Context precision", "How much of what retrieval returned was actually useful?"],
+];
+
+let data = null, order = "worst";
+
+// The passages are raw publication text. Surfacing the publication number makes
+// each one a citation rather than an anonymous blob, which is the repo's claim.
+function pubOf(text) {
+  const m = String(text).match(/Publication\s+(\d{3,4})|Pub\.?\s*(\d{3,4})/);
+  return m ? "Pub. " + (m[1] || m[2]) : null;
+}
+
+function renderAggregate() {
+  const m = data.metrics;
+  const zeros = data.per_question.flatMap(q =>
+    METRICS.filter(([k]) => q.scores[k] === 0).map(([k]) => k));
+  $("corpus").textContent =
+    `corpus tax year ${data.corpus_tax_year} · ${data.n_questions} questions · ` +
+    `${data.per_question.reduce((a, q) => a + q.retrieved_contexts.length, 0)} passages retrieved in total`;
+
+  $("agg").innerHTML = METRICS.map(([k, label]) => {
+    const v = m[k];
+    return `<div>
+      <div class="k">${esc(label)}</div>
+      <div class="v" style="color:var(--${band(v)})">${n3(v)}</div>
+      <div class="n">mean of ${data.n_questions}</div>
+    </div>`;
+  }).join("") + `<div>
+      <div class="k">Faithfulness at 1.0</div>
+      <div class="v">${data.per_question.filter(q => q.scores.faithfulness === 1).length} / ${data.n_questions}</div>
+      <div class="n">perfect runs</div>
+    </div>`;
+
+  $("caveat").innerHTML =
+    `<strong>Answer relevancy is the weak one, and it is the metric to read carefully.</strong> ` +
+    `Ragas scores it by generating questions from the answer and comparing them to the one asked, ` +
+    `so a thorough answer that covers conditions and exceptions scores lower than a terse one. ` +
+    `Sort worst first and read a few: the low scorers are mostly long, not wrong.` +
+    (zeros.length ? `<br><br><strong>${zeros.length} scores came back as exactly 0.000.</strong> ` +
+      `Two of them sit beside a faithfulness of 1.000 and 0.944, which are computed against the ` +
+      `same retrieved passages, so those two cannot both be right. They look like the scorer ` +
+      `failing rather than an answer scoring nothing. They are left in the published means ` +
+      `above; dropping all four would read ` +
+      METRICS.filter(([k]) => data.per_question.some(q => q.scores[k] === 0))
+        .map(([k, label]) => {
+          const kept = data.per_question.map(q => q.scores[k]).filter(v => v !== 0);
+          return `${label.toLowerCase()} ${(kept.reduce((a, b) => a + b, 0) / kept.length).toFixed(3)}`;
+        }).join(" and ") + `.` : "");
+}
+
+function renderList() {
+  const qs = data.per_question.map((q, i) => ({...q, _i: i}));
+  if (order === "worst") qs.sort((a, b) => a.scores.faithfulness - b.scores.faithfulness);
+  if (order === "best") qs.sort((a, b) => b.scores.faithfulness - a.scores.faithfulness);
+
+  $("qs").innerHTML = qs.map(q => `
+    <li>
+      <button class="q" aria-expanded="false" data-i="${q._i}">
+        <span class="num">${String(q._i + 1).padStart(2, "0")}</span>
+        <span class="text">${esc(q.user_input)}</span>
+        <span class="marks">${METRICS.map(([k]) =>
+          `<span class="mark ${band(q.scores[k])}">${n3(q.scores[k])}</span>`).join("")}</span>
+      </button>
+      <div class="detail" id="d${q._i}"></div>
+    </li>`).join("");
+  $("loading").style.display = "none";
+}
+
+function renderDetail(i, el) {
+  const q = data.per_question[i];
+  el.innerHTML = `
+    <h3>Scores for this question</h3>
+    <div class="scorecard">
+      ${METRICS.map(([k, label, note]) => {
+        const v = q.scores[k];
+        // An exact zero beside a high faithfulness is the scorer failing, not a
+        // measurement: faithfulness is computed against these same passages, so
+        // it cannot be high while they are worthless or the answer is unrelated.
+        const suspect = v === 0 && q.scores.faithfulness >= 0.9;
+        return `<div class="s">
+          <div class="lbl">${esc(label)}</div>
+          <div class="val" style="color:var(--${band(v)})">${n3(v)}</div>
+          <div class="track"><span class="${band(v)}" style="width:${Math.max(2, v * 100)}%"></span></div>
+          ${suspect ? `<div class="flag">Exact zero while faithfulness is
+            ${n3(q.scores.faithfulness)}. Both are computed against the same passages, so this
+            reads as the scorer failing rather than a measurement. It is left in the mean.</div>` : ""}
+        </div>`;
+      }).join("")}
+    </div>
+
+    <h3>What TaxCite answered</h3>
+    <div class="answer">${esc(q.response)}</div>
+
+    <h3>Reference answer it was scored against</h3>
+    <div class="ref">${esc(q.reference)}</div>
+
+    <h3>${q.retrieved_contexts.length} passages retrieval returned</h3>
+    <div class="ctxs">
+      ${q.retrieved_contexts.map((c, j) => {
+        const pub = pubOf(c);
+        return `<details class="ctx">
+          <summary>
+            <span>passage ${j + 1}</span>
+            ${pub ? `<span class="pub">${esc(pub)}</span>` : ""}
+            <span>${c.length.toLocaleString()} chars</span>
+          </summary>
+          <div class="body">${esc(c)}</div>
+        </details>`;
+      }).join("")}
+    </div>`;
+}
+
+$("qs").addEventListener("click", (e) => {
+  const btn = e.target.closest(".q");
+  if (!btn) return;
+  const i = Number(btn.dataset.i);
+  const el = $("d" + i);
+  const open = el.classList.toggle("open");
+  btn.setAttribute("aria-expanded", String(open));
+  if (open && !el.innerHTML.trim()) renderDetail(i, el);
+});
+
+$("sorts").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  order = btn.dataset.sort;
+  [...$("sorts").children].forEach(b => b.setAttribute("aria-pressed", String(b === btn)));
+  renderList();
+});
+
+fetch("/eval/report.json")
+  .then(r => r.ok ? r.json() : Promise.reject(new Error(r.status)))
+  .then(d => { data = d; renderAggregate(); renderList(); })
+  .catch(() => { $("loading").textContent = "The eval report could not be loaded."; });
+</script>
+</body>
+</html>

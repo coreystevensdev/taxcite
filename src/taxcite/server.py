@@ -6,10 +6,13 @@ import os
 import threading
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Literal
 
 import psycopg2
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import FileResponse
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 from pydantic import BaseModel, Field, field_validator
@@ -288,3 +291,30 @@ def ask_resume(request: Request, req: ResumeRequest) -> AskCompleteResponse:
         answer=values.get("answer", ""),
         citations=[Citation(**c) for c in values.get("citations", [])],
     )
+
+
+_PAGE = Path(__file__).resolve().parent / "web" / "index.html"
+_REPORT = Path(__file__).resolve().parent.parent.parent / "eval" / "report.json"
+
+# The report is ~700KB of mostly prose, so it compresses to a fraction of that.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+
+@app.get("/", include_in_schema=False)
+async def eval_page():
+    """The browsable eval report.
+
+    Nothing here is generated: the page reads the committed report and renders
+    it. An ask box would have been the obvious demo and would have shown less,
+    since it hides retrieval and hides whether the answer was any good.
+    """
+    return FileResponse(_PAGE, media_type="text/html")
+
+
+@app.get("/eval/report.json", include_in_schema=False)
+async def eval_report():
+    """Served from the file rather than rebuilt, so a reader can diff what the
+    page shows against what the repository contains."""
+    if not _REPORT.exists():
+        raise HTTPException(status_code=404, detail="eval report not found")
+    return FileResponse(_REPORT, media_type="application/json")
