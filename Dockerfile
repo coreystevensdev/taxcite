@@ -2,10 +2,13 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# src lands before the install, not after. Hatchling is told the package is at
+# src/taxcite, so installing against an absent source directory produced an
+# image that built cleanly and then could not import its own package.
 COPY pyproject.toml .
+COPY src/ src/
 RUN pip install --no-cache-dir ".[eval]"
 
-COPY src/ src/
 COPY eval/ eval/
 
 EXPOSE 8000

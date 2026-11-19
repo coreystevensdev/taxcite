@@ -56,3 +56,17 @@ jobs:
           grep -q "$n tests (pytest)" README.md || { echo "overview line does not say $n"; fail=1; }
           [ "$fail" = 0 ] || { echo "pytest collects $n. Update both spots in README.md."; exit 1; }
           echo "README agrees with pytest: $n"
+
+  image:
+    name: Image builds and can import itself
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # The test suite runs from the repo, so it passes whether or not the
+      # package installs into the image. This is the only thing that notices.
+      - name: Build and import
+        run: |
+          docker build -t taxcite-smoke .
+          docker run --rm taxcite-smoke python -c "import taxcite; print(taxcite.__name__, 'imports')"
+          docker run --rm taxcite-smoke python -m taxcite --help > /dev/null

@@ -165,8 +165,8 @@ jobs:
           # Deliberately not echoed. SSM returns stdout to the workflow log,
           # and a startup stack trace can carry the connection string with it.
           echo "never answered /health within 120s. Logs stayed on the instance:"
-          echo "  aws ssm send-command --instance-ids \$INSTANCE_ID --document-name AWS-RunShellScript \"
-          echo "    --parameters 'commands=[\"docker logs --tail 80 taxcite\"]'"
+          echo 'To read them:'
+          echo "  aws ssm send-command --instance-ids $INSTANCE_ID --document-name AWS-RunShellScript --parameters 'commands=[\"docker logs --tail 80 taxcite\"]'"
           exit 1
           SCRIPT
 
