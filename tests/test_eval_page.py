@@ -145,3 +145,24 @@ def test_the_recorded_fallback_cannot_pass_as_live(client):
 
     assert "Answering is not configured on this deployment" in body
     assert "Not generated now." in body
+
+
+def test_the_page_handles_the_human_review_interrupt(client):
+    """/ask stops before generating and returns awaiting_review with a
+    thread_id. A page that only read d.answer would show an empty card and
+    hide the one step that makes this different from a chat box."""
+    body = client.get("/").text
+
+    assert "awaiting_review" in body
+    assert "/ask/resume" in body
+    assert "thread_id" in body
+    assert "chunks_preview" in body
+
+
+def test_the_gate_offers_both_answers(client):
+    """Declining has to be possible, or it is not a gate."""
+    body = client.get("/").text
+
+    assert "Approve and generate" in body
+    assert "Decline" in body
+    assert "nothing was spent" in body

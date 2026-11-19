@@ -144,6 +144,21 @@ h1 .cite { color: var(--accent); }
   font-family: var(--mono); font-size: 11.5px; padding: 4px 10px;
   background: var(--accent-wash); color: var(--accent); border-radius: 2px;
 }
+.review { padding: 0 16px 16px; }
+.review .gate {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  padding: 11px 0 14px; border-top: 1px solid var(--rule-soft); margin-top: 4px;
+}
+.review .gate p { margin: 0; font-size: 13.5px; color: var(--ink-soft); flex: 1 1 260px; }
+.review button {
+  font-family: var(--display); font-weight: 600; font-size: 13.5px; letter-spacing: .03em;
+  text-transform: uppercase; padding: 9px 18px; cursor: pointer; border-radius: 2px;
+  background: var(--accent); color: var(--accent-ink); border: 1.5px solid var(--accent);
+}
+.review button.no { background: transparent; color: var(--ink-soft); border-color: var(--rule); }
+.review button:disabled { opacity: .55; cursor: progress; }
+.review button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
 .proof {
   border-left: 3px solid var(--accent); background: var(--surface);
   padding: 14px 16px; margin-top: 18px; font-size: 14.5px; color: var(--ink-soft);
@@ -262,6 +277,7 @@ footer a { color: var(--accent); }
     <div class="mode"><span class="badge" id="ansmode"></span><span id="answhy"></span></div>
     <div class="text" id="anstext"></div>
     <div class="cites" id="anscites"></div>
+    <div class="review" id="review"></div>
   </div>
 
   <p class="proof" id="proof"></p>
@@ -451,7 +467,48 @@ function showAnswer({mode, why, text, cites}) {
   $("anstext").textContent = text;
   $("anscites").innerHTML = (cites || [])
     .map(c => `<span class="cite-chip">${esc(c)}</span>`).join("");
+  $("review").innerHTML = "";
   $("answer").classList.add("on");
+}
+
+function renderGate(threadId) {
+  $("review").innerHTML = `
+    <div class="gate">
+      <p>Nothing has been generated yet. Approving runs the model against the passages above;
+         declining ends the run without spending anything.</p>
+      <button type="button" id="approve">Approve and generate</button>
+      <button type="button" class="no" id="decline">Decline</button>
+    </div>`;
+
+  const decide = async (approved) => {
+    for (const id of ["approve", "decline"]) $(id).disabled = true;
+    if (approved) $("approve").textContent = "Generating";
+    try {
+      const res = await fetch("/ask/resume", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({thread_id: threadId, approved}),
+      });
+      const d = await res.json();
+      if (!res.ok) {
+        showAnswer({mode: "unavailable", why: d.detail || `HTTP ${res.status}`, text: "", cites: []});
+        return;
+      }
+      showAnswer({
+        mode: approved ? "generated" : "declined",
+        why: approved
+          ? "Generated from the passages you approved."
+          : "The run ended at the gate. Nothing was generated and nothing was spent.",
+        text: d.answer || "",
+        cites: (d.citations || []).map(c => `Pub. ${c.pub_id} p.${c.first_page}`),
+      });
+    } catch (e) {
+      showAnswer({mode: "error", why: "The request did not complete.", text: "", cites: []});
+    }
+  };
+
+  $("approve").addEventListener("click", () => decide(true));
+  $("decline").addEventListener("click", () => decide(false));
 }
 
 async function ask(question) {
@@ -472,6 +529,20 @@ async function ask(question) {
         showAnswer({mode: "unavailable", why: d.detail || `HTTP ${res.status}`, text: "", cites: []});
         return;
       }
+      // The graph interrupts before generating. That pause is the product's
+      // design rather than a loading state, so the page shows what retrieval
+      // found and waits, instead of hiding it behind a spinner.
+      if (d.status === "awaiting_review") {
+        showAnswer({
+          mode: "paused for review",
+          why: "Retrieval ran and the graph stopped before generating. These are the passages it would use.",
+          text: (d.chunks_preview || []).map(c => `${c.pub_id} ${c.pages}\n${c.excerpt}`).join("\n\n"),
+          cites: [...new Set((d.chunks_preview || []).map(c => `Pub. ${c.pub_id.replace(/^p/, "")}`))],
+        });
+        renderGate(d.thread_id);
+        return;
+      }
+
       showAnswer({
         mode: "live",
         why: "Generated now, from the embedded corpus.",
