@@ -314,7 +314,22 @@ def ask_resume(request: Request, req: ResumeRequest) -> AskCompleteResponse:
 
 
 _PAGE = Path(__file__).resolve().parent / "web" / "index.html"
-_REPORT = Path(__file__).resolve().parent.parent.parent / "eval" / "report.json"
+
+
+def _find_report() -> Path:
+    """Locate eval/report.json whether running from the repo or the image.
+
+    Installed, __file__ sits in site-packages and walking up from it lands
+    nowhere near the report, which the Dockerfile copies next to the working
+    directory. The repo layout made the local test pass and the container 404.
+    """
+    override = os.environ.get("TAXCITE_EVAL_REPORT")
+    candidates = [Path(override)] if override else []
+    candidates += [
+        Path.cwd() / "eval" / "report.json",
+        Path(__file__).resolve().parent.parent.parent / "eval" / "report.json",
+    ]
+    return next((c for c in candidates if c.is_file()), candidates[-1])
 
 # The report is ~700KB of mostly prose, so it compresses to a fraction of that.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
@@ -335,6 +350,7 @@ async def eval_page():
 async def eval_report():
     """Served from the file rather than rebuilt, so a reader can diff what the
     page shows against what the repository contains."""
-    if not _REPORT.exists():
+    report = _find_report()
+    if not report.is_file():
         raise HTTPException(status_code=404, detail="eval report not found")
-    return FileResponse(_REPORT, media_type="application/json")
+    return FileResponse(report, media_type="application/json")

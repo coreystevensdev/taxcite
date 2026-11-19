@@ -70,3 +70,17 @@ jobs:
           docker build -t taxcite-smoke .
           docker run --rm taxcite-smoke python -c "import taxcite; print(taxcite.__name__, 'imports')"
           docker run --rm taxcite-smoke python -m taxcite --help > /dev/null
+
+      # The report path resolved from __file__, which lands in site-packages
+      # once installed, so the repo layout made the local test pass and the
+      # container return 404. Only a request against the image sees that.
+      - name: The eval report is served from the image
+        run: |
+          docker run -d --name smoke -p 8099:8000 taxcite-smoke
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8099/health >/dev/null 2>&1 && break
+            sleep 2
+          done
+          curl -fsS -o /dev/null http://127.0.0.1:8099/
+          curl -fsS http://127.0.0.1:8099/eval/report.json | head -c 80
+          docker rm -f smoke
