@@ -1,0 +1,200 @@
+name: Deploy to AWS EC2
+run-name: Deploy ${{ github.event.workflow_run.head_sha || github.sha }}
+
+on:
+  # Deploys follow a green CI on main rather than the merge itself, so a commit
+  # whose tests failed never reaches the box.
+  workflow_run:
+    workflows: [CI]
+    branches: [main]
+    types: [completed]
+
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Deploy even though CI has not passed for this commit
+        type: boolean
+        default: false
+
+# One deploy at a time. Two runs for different commits would race on the same
+# container name and the box could end up pinned to the older image.
+concurrency:
+  group: deploy-taxcite-production
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+  actions: read # reads CI's conclusion for this sha on a manual run
+
+env:
+  AWS_REGION: us-east-1
+  INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
+
+jobs:
+  deploy:
+    # The environment is a second gate the workflow condition cannot bypass:
+    # GitHub refuses to run this job for any ref but main, and the OIDC subject
+    # becomes environment:production, which is what lets the AWS trust policy
+    # stop accepting a bare repo wildcard.
+    environment:
+      name: production
+      url: https://taxcite.coreystevens.dev/
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # workflow_run fires for any CI run matching the filter, and CI runs on
+    # pull_request. A fork's default branch is also called main, so a fork PR
+    # produces a run with head_branch "main" that passes a bare branches filter.
+    # Without the event and head_repository checks this job would check out the
+    # fork's sha and deploy it with this repo's OIDC credentials.
+    if: >-
+      ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+       || (github.event_name == 'workflow_run'
+           && github.event.workflow_run.conclusion == 'success'
+           && github.event.workflow_run.event == 'push'
+           && github.event.workflow_run.head_branch == 'main'
+           && github.event.workflow_run.head_repository.full_name == github.repository) }}
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      # A manual run skips the workflow_run gate, so it asks the question that
+      # gate answers. Empty is treated as failure: no completed run for this sha
+      # is not the same as a green one.
+      - name: Check CI passed for this commit
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.force }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          conclusion=$(gh api \
+            "repos/${{ github.repository }}/actions/workflows/tests.yml/runs?head_sha=$SHA&status=completed&branch=main&event=push&per_page=1" \
+            --jq '.workflow_runs[0].conclusion // ""')
+          echo "CI for ${SHA:0:7}: ${conclusion:-none}"
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::CI for ${SHA:0:7} is '${conclusion:-none}'. Re-run with force checked if that is intended."
+            exit 1
+          fi
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image tag
+        id: tag
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ECR_REPO: ${{ secrets.ECR_REPO }}
+        run: echo "image=${ECR_REPO}:sha-${HEAD_SHA:0:7}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        env:
+          IMAGE: ${{ steps.tag.outputs.image }}
+        run: |
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      # The service listens on loopback only, so the health check has to run on
+      # the instance. Deploy and verify are one script: it exits non-zero if the
+      # container never answers /health, and this job fails with it.
+      - name: Deploy and verify on the instance
+        env:
+          IMAGE: ${{ steps.tag.outputs.image }}
+        run: |
+          cat > deploy-remote.sh <<'SCRIPT'
+          #!/bin/bash
+          set -euo pipefail
+          IMAGE="$1"
+          REGION=us-east-1
+          REGISTRY=401716295306.dkr.ecr.us-east-1.amazonaws.com
+
+          aws ecr get-login-password --region "$REGION" \
+            | docker login --username AWS --password-stdin "$REGISTRY"
+          docker pull "$IMAGE"
+
+          # Read on the box so neither the URL nor either vendor key appears
+          # in the SSM command string, the run log, or CloudTrail. The two
+          # vendor keys may legitimately be UNSET: /ask refuses with a sentence
+          # in that case and the eval report at / is unaffected.
+          DATABASE_URL=$(aws ssm get-parameter --name /taxcite/database-url \
+            --with-decryption --region "$REGION" --query Parameter.Value --output text)
+          ANTHROPIC_KEY=$(aws ssm get-parameter --name /taxcite/anthropic-api-key \
+            --with-decryption --region "$REGION" --query Parameter.Value --output text)
+          VOYAGE_KEY=$(aws ssm get-parameter --name /taxcite/voyage-api-key \
+            --with-decryption --region "$REGION" --query Parameter.Value --output text)
+          [ "$ANTHROPIC_KEY" = "UNSET" ] && ANTHROPIC_KEY=""
+          [ "$VOYAGE_KEY" = "UNSET" ] && VOYAGE_KEY=""
+
+          docker stop taxcite 2>/dev/null || true
+          docker rm taxcite 2>/dev/null || true
+
+          # 8085 on loopback; 8080 through 8084 are the five services already
+          # here. 512m because generation holds the retrieved passages and the
+          # response at once, and this is the only service on the box that calls
+          # a model on the request path.
+          #
+          # Its own pgvector instance on 5433 rather than the shared Postgres on
+          # 5432: that one is Alpine and pgvector ships Debian, and moving a
+          # PGDATA between musl and glibc risks collation ordering on text
+          # indexes that three live databases depend on.
+          docker run -d \
+            --name taxcite \
+            --restart=always \
+            -p 127.0.0.1:8085:8000 \
+            --memory=512m \
+            --memory-swap=768m \
+            -v /var/lib/taxcite:/state \
+            -e "TITLETRACE_SPEND_LEDGER=/state/spend.json" \
+            -e "TITLETRACE_QUOTA_LEDGER=/state/quota.json" \
+            "$IMAGE"
+
+          for i in $(seq 1 24); do
+            if curl -fsS http://127.0.0.1:8085/health >/dev/null 2>&1; then
+              echo "healthy after $((i * 5))s"
+
+              exit 0
+            fi
+            sleep 5
+          done
+          # Deliberately not echoed. SSM returns stdout to the workflow log,
+          # and a startup stack trace can carry the connection string with it.
+          echo "never answered /health within 120s. Logs stayed on the instance:"
+          echo "  aws ssm send-command --instance-ids \$INSTANCE_ID --document-name AWS-RunShellScript \"
+          echo "    --parameters 'commands=[\"docker logs --tail 80 taxcite\"]'"
+          exit 1
+          SCRIPT
+
+          # Piped into bash rather than written to a path first. A file at a
+          # predictable name under /tmp, created by root and then executed by
+          # root, is a window another local account can step into.
+          B64=$(base64 -w0 deploy-remote.sh)
+          CMD=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "deploy taxcite $IMAGE" \
+            --parameters "commands=[\"echo $B64 | base64 -d | bash -s -- $IMAGE\"]" \
+            --query Command.CommandId --output text)
+          echo "SSM command: $CMD"
+
+          for i in $(seq 1 40); do
+            STATUS=$(aws ssm get-command-invocation --command-id "$CMD" \
+              --instance-id "$INSTANCE_ID" --query Status --output text 2>/dev/null || echo Pending)
+            case "$STATUS" in
+              Success) break ;;
+              Failed|Cancelled|TimedOut) break ;;
+            esac
+            sleep 10
+          done
+
+          aws ssm get-command-invocation --command-id "$CMD" --instance-id "$INSTANCE_ID" \
+            --query StandardOutputContent --output text
+          aws ssm get-command-invocation --command-id "$CMD" --instance-id "$INSTANCE_ID" \
+            --query StandardErrorContent --output text >&2
+
+          [ "$STATUS" = "Success" ] || { echo "deploy failed with status $STATUS"; exit 1; }
