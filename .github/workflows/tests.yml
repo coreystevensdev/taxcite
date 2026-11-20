@@ -47,6 +47,16 @@ jobs:
       - name: Run tests
         run: pytest tests/ -v --tb=short -x
 
+      - name: uv.lock still matches pyproject.toml
+        # The lock installs nothing; pip does, from pyproject.toml above. It
+        # exists so GitHub's dependency graph sees the whole transitive tree
+        # rather than only the declared deps, which here is 140 packages against
+        # 29. A lock nothing enforces drifts, and a drifted lock makes the scan
+        # precise and wrong, so this fails when the two disagree.
+        run: |
+          pip install --quiet uv
+          uv lock --check
+
       - name: README test count matches what pytest collects
         run: |
           n=$(pytest tests/ --collect-only -q | grep -oE '^[0-9]+ tests? collected' | grep -oE '^[0-9]+')
