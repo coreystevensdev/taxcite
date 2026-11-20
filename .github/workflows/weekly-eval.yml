@@ -1,0 +1,148 @@
+# The Ragas eval cannot gate a commit: it ingests 14 IRS publications (5 to 10
+# minutes) and then spends Voyage and Anthropic credits scoring 50 questions.
+# So it runs weekly instead, and opens an issue when a score drops rather than
+# failing into a log nobody reads.
+#
+# It needs ANTHROPIC_API_KEY and VOYAGE_API_KEY as repository secrets. Neither
+# exists yet, and the guard below skips the run with a clear message rather than
+# failing every Monday until they do.
+
+name: Weekly eval
+
+on:
+  schedule:
+    # Mondays 09:00 UTC. Early enough that a regression is waiting at the start
+    # of the week rather than discovered on the way to shipping something.
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why this run (recorded in the summary)"
+        required: false
+        default: "manual"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ] || [ -z "$VOYAGE_API_KEY" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Weekly eval skipped"
+              echo
+              echo "Needs \`ANTHROPIC_API_KEY\` and \`VOYAGE_API_KEY\` as repository secrets."
+              echo "Add them under Settings, Secrets and variables, Actions, and this runs on its own next Monday."
+              echo
+              echo "Cost per run: the ingest embeds 14 publications with Voyage, then 50 questions are answered by Claude and scored by a Claude judge."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  eval:
+    needs: preflight
+    if: needs.preflight.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: taxcite
+          POSTGRES_PASSWORD: taxcite
+          POSTGRES_DB: taxcite
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://taxcite:taxcite@localhost:5432/taxcite
+      LANGCHAIN_TRACING_V2: "false"
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[dev,eval]'
+
+      - name: Ingest the pinned corpus
+        run: python -m taxcite ingest
+
+      - name: Run the Ragas eval
+        run: python -m taxcite eval --out eval/weekly-report.json
+
+      - name: Compare against the committed baseline
+        id: compare
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os, pathlib
+
+          # The floors are deliberately below the committed figures. A weekly run
+          # that trips on normal variance stops being read, which is how the
+          # insight-rate limitation in the README went wrong the first time.
+          FLOORS = {"faithfulness": 0.85, "context_precision": 0.78, "answer_relevancy": 0.55}
+
+          new = json.load(open("eval/weekly-report.json"))["metrics"]
+          base = json.load(open("eval/report.json"))["metrics"]
+
+          print("### Weekly eval\n")
+          print("| Metric | Baseline | This run | Delta | Floor |")
+          print("|---|---|---|---|---|")
+          breached = []
+          for name, floor in FLOORS.items():
+              b, n = base.get(name), new.get(name)
+              if b is None or n is None:
+                  continue
+              mark = "" if n >= floor else " **under floor**"
+              print(f"| {name} | {b:.3f} | {n:.3f} | {n - b:+.3f} | {floor}{mark} |")
+              if n < floor:
+                  breached.append(f"{name} {n:.3f} against a {floor} floor")
+
+          print("\nOne run does not pin a rate. Read a single breach as a prompt to re-measure "
+                "at a higher sample count, not as a finding; that mistake is documented in "
+                "docs/eval-history.md on the other side of this repo's family.")
+
+          out = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with out.open("a") as fh:
+              fh.write(f"breached={'1' if breached else '0'}\n")
+              fh.write(f"summary={'; '.join(breached)}\n")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: weekly-eval-report
+          path: eval/weekly-report.json
+
+      - name: Open an issue if a floor was breached
+        if: steps.compare.outputs.breached == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BREACH: ${{ steps.compare.outputs.summary }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create \
+            --title "Weekly eval: a score fell under its floor" \
+            --label eval \
+            --body "$(printf '%s\n\n%s\n\n%s\n' \
+              "$BREACH" \
+              "Run: $RUN_URL. The report is attached to it as weekly-eval-report." \
+              "Before changing anything, re-run at a higher sample count. A single 50-question run has enough spread that one metric dipping under a floor is more often sampling noise than a regression, and treating the first reading as a finding is the exact mistake this repo already documents.")"
