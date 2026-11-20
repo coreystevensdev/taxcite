@@ -41,6 +41,19 @@ eval = [
   # 0.4 removed. Without this bound `pip install .[eval]` resolves to a pair that
   # cannot import ragas at all, so the eval extra was uninstallable as written.
   "langchain-community>=0.3,<0.4",
+  # eval_harness._judge_llm and _judge_embeddings import these inside the
+  # function body, so nothing fails until an eval actually runs. Neither was
+  # ever declared, so `pip install -e '.[eval]'` could not import either one.
+  # Three layers missed it: the suite never calls those functions, tests.yml
+  # installs .[dev] rather than .[eval], and weekly-eval.yml skips for want of
+  # an API key.
+  #
+  # The langchain-anthropic floor is 1.7 and not 0.3 on purpose: every release
+  # before 1.7 caps anthropic below 1.0, so a bare `>=0.3` resolves and
+  # silently drags the SDK from 1.17.0 back to 0.125.0. 1.7.12 asks for
+  # anthropic>=0.120.0 with no ceiling, which leaves it alone.
+  "langchain-anthropic>=1.7",
+  "langchain-voyageai>=0.1",
 ]
 
 [tool.hatch.build.targets.wheel]
