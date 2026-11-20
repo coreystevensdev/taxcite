@@ -150,6 +150,18 @@ LangGraph run
 
 Traces show: LangGraph state transitions (retrieve -> human_review -> generate_answer), the HITL interrupt point and resume event, the raw Anthropic messages payload, token counts and cost per node, Voyage AI embedding latency, and end-to-end latency across both the initial invoke and the resume call.
 
+## How this was built
+
+Written with heavy AI assistance, and the thing worth reporting is that the first version of this pipeline scored 0.464 faithfulness, 0.136 answer relevancy and 0.102 context precision while looking entirely finished. Every component was plausible. Three bugs were sitting in it and each one hid the next.
+
+`pdfplumber` returned the two columns of each IRS page zippered together, so every chunk was two half-sentences from unrelated passages. The IVFFlat index was built during migration before any rows existed, and IVFFlat derives its centroids from the data present at build time, so on an empty table a query probed one meaningless list out of a hundred: 11 of the 50 questions retrieved nothing at all. Generation then ran at `max_tokens=1024`, which was survivable only because retrieval was returning nothing to write about.
+
+None of that was visible from reading the code, and none of it would have been caught by a test that mocked the database or the PDF reader. It took running the eval end to end against real publications. The lesson I took from it is in the section above: an eval that has never completed a run is not a weak signal, it is no signal, and a confident-looking RAG pipeline is exactly the kind of artifact that hides this.
+
+Two guards exist because of it. The judge is wired explicitly in `_judge_llm` rather than left to whatever Ragas reaches for, so scoring cannot silently fall back to a provider this project does not configure. And every question's own score is committed next to the aggregate in `eval/report.json`, which is what makes a retrieval change a paired comparison rather than two means that might differ by noise. Both runs behind the reranker comparison are committed too, so the run-to-run spread the argument rests on is a file rather than a claim.
+
+Answer relevancy at 0.633 is the weakest of the three scores and it stays in Known Limitations rather than being explained away.
+
 ## Known Limitations
 
 - Context window: retrieves top-8 chunks per question; multi-part questions spanning many publications may miss relevant context.
