@@ -3,7 +3,7 @@
 ![CI](https://github.com/coreystevensdev/taxcite/actions/workflows/tests.yml/badge.svg)
 ![121 tests](https://img.shields.io/badge/tests-121-brightgreen)
 
-[github.com/coreystevensdev/taxcite](https://github.com/coreystevensdev/taxcite)
+**[Try it: taxcite.coreystevens.dev](https://taxcite.coreystevens.dev/)**: the page opens on the eval, so you see 50 real questions with the answer given, the passages retrieval pulled, and what each one scored, worst first.
 
 ## Overview
 
@@ -44,7 +44,7 @@ The LangGraph state machine has five nodes with two conditional edges. `retrieve
 
 ## Eval Harness
 
-Ragas evaluation over 50 questions spanning all 14 ingested IRS publications, scoring faithfulness, answer relevancy, and context precision. Questions include numeric exact-match cases (dollar thresholds, age limits, percentages) and conceptual retrieval cases. Claude judges and voyage-3 embeds, the same models the agent uses, so the eval needs no third provider. Every question's own scores are kept in the report alongside the aggregate, which is what turns a retrieval change into a paired comparison rather than two means that might differ by noise.
+Ragas evaluation over 50 questions spanning all 14 ingested IRS publications, scoring faithfulness, answer relevancy, and context precision. Questions include numeric exact-match cases (dollar thresholds, age limits, percentages) and conceptual retrieval cases. Claude judges and Voyage embeds, so the eval needs no third provider; the judge's embedder is `voyage-3` while the agent retrieves with `voyage-3.5-lite`, same vendor and same 1024 dimensions but not the same model. Every question's own scores are kept in the report alongside the aggregate, which is what turns a retrieval change into a paired comparison rather than two means that might differ by noise.
 
 Latest run, committed at `eval/report.json`:
 
@@ -56,7 +56,7 @@ Latest run, committed at `eval/report.json`:
 
 The corpus is pinned to a tax year, so these are measured against the publications the dataset was written against. Before pinning, `ingest` pulled whatever revision the IRS was currently serving: 7 of the 50 questions asked for 2024 figures the 2025 revisions do not contain, the agent correctly declined to state them, and Ragas scored those refusals as total misses. That alone was worth 0.759 against 0.857 on context precision and 0.911 against 0.945 on faithfulness.
 
-Retrieval pulls 24 candidates and a voyage `rerank-2` cross-encoder narrows them to the 8 the model reads. Vector search scores the query and the chunk in the same space independently, so it measures what a passage is about rather than whether it answers this question; a cross-encoder reads the pair together. Measured against the same corpus without it, context precision went 0.704 to 0.759 and faithfulness 0.891 to 0.911. Two reranked runs landed within 0.004 of each other on context precision, so those gaps are roughly sixteen and fourteen times the observed run-to-run spread. Answer relevancy moved down 0.023, under twice that spread, which is too small to call in either direction.
+Retrieval pulls 24 candidates and a voyage `rerank-2` cross-encoder narrows them to the 8 the model reads. Vector search scores the query and the chunk in the same space independently, so it measures what a passage is about rather than whether it answers this question; a cross-encoder reads the pair together. Measured against the same corpus without it, context precision went 0.704 to 0.759 and faithfulness 0.891 to 0.911. Two reranked runs landed within 0.004 of each other on context precision, so those gaps are roughly sixteen and fourteen times the observed run-to-run spread. Those two runs are committed as [`eval/runs/main-lines.json`](eval/runs/main-lines.json) (0.8600) and [`eval/runs/branch-sentences.json`](eval/runs/branch-sentences.json) (0.8585), with all 50 per-question scores in each, so the spread this paragraph rests on is a file you can open rather than a number to take on trust. Answer relevancy moved down 0.023, under twice that spread, which is too small to call in either direction.
 
 Those numbers are worth reading alongside what they were a day earlier: **0.464 / 0.136 / 0.102**. The harness had never completed a run, so nothing had ever measured the retrieval path, and three bugs were sitting in it. PDF text came out of `pdfplumber` with the two columns zippered together, so every chunk was two half-sentences from unrelated passages. The IVFFlat index was created during migration, before any rows existed, and IVFFlat derives its centroids from the data present at build time, so on an empty table a query probed one meaningless list out of a hundred: 11 of the 50 questions retrieved nothing at all. Generation then ran at `max_tokens=1024`, which was survivable only while retrieval was returning nothing.
 
@@ -149,6 +149,18 @@ LangGraph run
 ```
 
 Traces show: LangGraph state transitions (retrieve -> human_review -> generate_answer), the HITL interrupt point and resume event, the raw Anthropic messages payload, token counts and cost per node, Voyage AI embedding latency, and end-to-end latency across both the initial invoke and the resume call.
+
+## How this was built
+
+Written with heavy AI assistance, and the thing worth reporting is that the first version of this pipeline scored 0.464 faithfulness, 0.136 answer relevancy and 0.102 context precision while looking entirely finished. Every component was plausible. Three bugs were sitting in it and each one hid the next.
+
+`pdfplumber` returned the two columns of each IRS page zippered together, so every chunk was two half-sentences from unrelated passages. The IVFFlat index was built during migration before any rows existed, and IVFFlat derives its centroids from the data present at build time, so on an empty table a query probed one meaningless list out of a hundred: 11 of the 50 questions retrieved nothing at all. Generation then ran at `max_tokens=1024`, which was survivable only because retrieval was returning nothing to write about.
+
+None of that was visible from reading the code, and none of it would have been caught by a test that mocked the database or the PDF reader. It took running the eval end to end against real publications. The lesson I took from it is in the section above: an eval that has never completed a run is not a weak signal, it is no signal, and a confident-looking RAG pipeline is exactly the kind of artifact that hides this.
+
+Two guards exist because of it. The judge is wired explicitly in `_judge_llm` rather than left to whatever Ragas reaches for, so scoring cannot silently fall back to a provider this project does not configure. And every question's own score is committed next to the aggregate in `eval/report.json`, which is what makes a retrieval change a paired comparison rather than two means that might differ by noise. Both runs behind the reranker comparison are committed too, so the run-to-run spread the argument rests on is a file rather than a claim.
+
+Answer relevancy at 0.633 is the weakest of the three scores and it stays in Known Limitations rather than being explained away.
 
 ## Known Limitations
 

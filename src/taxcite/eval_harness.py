@@ -7,9 +7,10 @@ Usage:
     python -m taxcite eval [--dataset eval/dataset.jsonl] [--out eval/report.json]
 
 Requires the eval extras (ragas, datasets) and a live DATABASE_URL with
-ingested publications. Ragas scoring uses the LLM configured via the
-OPENAI_API_KEY environment variable (default) or a custom judge via
-RAGAS_LLM env var (see ragas docs).
+ingested publications. The judge is Claude and the judge's embedder is
+voyage-3, both wired explicitly in `_judge_llm` and `_judge_embeddings`, so
+scoring needs no provider beyond the two the agent already uses. Neither
+OPENAI_API_KEY nor RAGAS_LLM is read anywhere in this project.
 """
 from __future__ import annotations
 
@@ -87,9 +88,8 @@ def _judge_llm():
     """Claude as the judge, rather than whatever Ragas reaches for by default.
 
     Left unset, `evaluate` builds an OpenAI client and fails on auth, which is a
-    third provider this project neither configures nor needs. `.env.example` still
-    lists OPENAI_API_KEY for that reason and the key on file was an Anthropic one,
-    so the eval could not have run as shipped.
+    third provider this project neither configures nor needs. That failure is the
+    whole reason the judge is passed in explicitly.
     """
     from langchain_anthropic import ChatAnthropic
     from ragas.llms import LangchainLLMWrapper
