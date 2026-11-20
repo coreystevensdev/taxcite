@@ -3,7 +3,7 @@
 ![CI](https://github.com/coreystevensdev/taxcite/actions/workflows/tests.yml/badge.svg)
 ![121 tests](https://img.shields.io/badge/tests-121-brightgreen)
 
-[github.com/coreystevensdev/taxcite](https://github.com/coreystevensdev/taxcite)
+**[Try it: taxcite.coreystevens.dev](https://taxcite.coreystevens.dev/)**: the page opens on the eval, so you see 50 real questions with the answer given, the passages retrieval pulled, and what each one scored, worst first.
 
 ## Overview
 
