@@ -39,27 +39,29 @@ jobs:
           cache: 'pip'
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
-
-      - name: Lint
-        run: ruff check src/ tests/
-
-      - name: Run tests
-        run: pytest tests/ -v --tb=short -x
-
-      - name: uv.lock still matches pyproject.toml
-        # The lock installs nothing; pip does, from pyproject.toml above. It
-        # exists so GitHub's dependency graph sees the whole transitive tree
-        # rather than only the declared deps, which here is 140 packages against
-        # 29. A lock nothing enforces drifts, and a drifted lock makes the scan
-        # precise and wrong, so this fails when the two disagree.
+        # From the lock, not from pyproject. pip resolved the constraints fresh
+        # on every run, so what CI tested and what uv.lock recorded were only
+        # ever assumed to be the same tree.
+        #
+        # --locked rather than --frozen: both install from the lock, but only
+        # --locked fails when the lock no longer matches pyproject. --frozen
+        # exits 0 and uses the stale lock, which is the opposite of what the
+        # name suggests. This replaces the separate `uv lock --check` step,
+        # which was doing exactly this assertion on its own.
         run: |
           pip install --quiet uv
-          uv lock --check
+          uv sync --locked --extra dev
+
+      - name: Lint
+        run: uv run --frozen ruff check src/ tests/
+
+      - name: Run tests
+        run: uv run --frozen pytest tests/ -v --tb=short -x
+
 
       - name: README test count matches what pytest collects
         run: |
-          n=$(pytest tests/ --collect-only -q | grep -oE '^[0-9]+ tests? collected' | grep -oE '^[0-9]+')
+          n=$(uv run --frozen pytest tests/ --collect-only -q | grep -oE '^[0-9]+ tests? collected' | grep -oE '^[0-9]+')
           [ -n "$n" ] || { echo "could not parse a count out of pytest"; exit 1; }
           fail=0
           grep -q "tests-$n-brightgreen" README.md || { echo "badge does not say $n"; fail=1; }
