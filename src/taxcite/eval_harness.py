@@ -113,10 +113,10 @@ def _judge_embeddings():
     return LangchainEmbeddingsWrapper(VoyageAIEmbeddings(model="voyage-3"))
 
 
-# A ground truth that opens "For 2024, ..." is pinned to a tax year. The IRS
-# serves every publication from an unversioned URL, so the same ingest command
-# fetches a different revision each January and a dataset written against last
-# year's figures starts scoring correct refusals as failures.
+# A ground truth that opens "For 2024, ..." is pinned to a tax year, and the
+# corpus is pinned separately by manifest.TAX_YEAR. Move one without the other
+# and the agent correctly refuses to state the year it does not have, which
+# scores as a failure. This is what tells those apart from real ones.
 _YEAR_IN_REFERENCE = re.compile(r"\bFor (20\d{2})\b|\b(20\d{2}) tax year\b")
 
 
