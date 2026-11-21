@@ -171,6 +171,7 @@ Answer relevancy at 0.633 is the weakest of the three scores and it stays in Kno
 - Answer relevancy at 0.633 is the weakest of the three metrics. Ragas scores it by generating questions from the answer and comparing them to the original, so verbose answers that cover more ground than was asked score lower.
 - Column detection is a heuristic: it looks for a density trough in word coverage across the page. It falls back to single-column when it finds none, which is right for covers and full-width tables, but an unusual layout could still be split in the wrong place.
 - Publications are ingested as static snapshots; re-ingest when IRS revises a publication (annual cycle for most).
+- LangSmith tracing is opt-in, and it is the only path here that reaches a real advisory class. `LANGCHAIN_TRACING_V2` defaults to `false` in `docker-compose.yml`, so the deployed demo does not trace. With it `true`, the `@traceable` decorators in `embed.py`, `rerank.py` and `agent.py` send runs to LangSmith, and older SDK versions let streaming token events bypass output redaction. `pyproject.toml` pins `langsmith>=0.8.18` for that reason, so the path is patched rather than open. It is recorded here because it was the one advisory of thirteen that this project could actually reach: the rest name APIs it never calls (`load_prompt`, `ChatOpenAI`, `pull_prompt`, `TracingMiddleware`, `langgraph_sdk`, and an `HTMLHeaderTextSplitter` in a project that chunks its own PDFs), which is why a version-based scan overstated the exposure.
 
 ## License
 
