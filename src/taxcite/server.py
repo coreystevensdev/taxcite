@@ -348,6 +348,57 @@ def _find_report() -> Path:
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
+_ASSETS = {
+    "/app.css": (Path(__file__).resolve().parent / "web" / "app.css", "text/css"),
+    "/app.js": (Path(__file__).resolve().parent / "web" / "app.js", "application/javascript"),
+}
+
+
+# The page used to carry both of these inline, which is why it could not have a
+# Content-Security-Policy worth setting: any policy permitting its own <script>
+# also permits an injected one. Nine innerHTML assignments render report prose,
+# so that was the surface worth closing.
+#
+# Served as files rather than nonced inline: a nonce has to change per response,
+# the page is a FileResponse off disk, and templating it just to vary one
+# attribute buys nothing that 'self' does not already give. Files also cache.
+@app.get("/app.css", include_in_schema=False)
+async def app_css():
+    path, media = _ASSETS["/app.css"]
+    return FileResponse(path, media_type=media)
+
+
+@app.get("/app.js", include_in_schema=False)
+async def app_js():
+    path, media = _ASSETS["/app.js"]
+    return FileResponse(path, media_type=media)
+
+
+# Built once. style-src keeps 'unsafe-inline' because five style= attributes and
+# one element.style assignment remain in the markup, and style injection is a far
+# smaller problem than script injection; script-src carries no such escape.
+# Google Fonts needs the stylesheet host on style-src and the font host on
+# font-src, which is the one pair that cannot be 'self'.
+_CSP = "; ".join([
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'none'",
+    "object-src 'none'",
+])
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("Content-Security-Policy", _CSP)
+    return response
+
+
 @app.get("/", include_in_schema=False)
 async def eval_page():
     """The browsable eval report.
