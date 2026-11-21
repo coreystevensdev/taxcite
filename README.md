@@ -101,8 +101,14 @@ Or with Docker Compose:
 ```bash
 cp .env.example .env
 docker compose up -d
-docker compose exec api python -m taxcite ingest
 ```
+
+Compose needs no ingest step. `server.py` starts one in a background thread on
+first boot when the corpus is empty and `VOYAGE_API_KEY` is set, which is the
+state a fresh `compose up` with a filled-in `.env` produces. `/health` answers
+200 straight away and queries return nothing until it finishes, roughly 5 to 10
+minutes. Running `taxcite ingest` as well embeds all 14 publications a second
+time, under a separate cost cap, for rows that upsert over the first set.
 
 ## HITL Interrupt/Resume
 
