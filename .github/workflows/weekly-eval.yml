@@ -82,13 +82,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e '.[dev,eval]'
+      # From the lock, like tests.yml. The eval extra is what pulls ragas and the
+      # two judge packages, which the serving image deliberately no longer has.
+      - run: |
+          pip install --quiet uv
+          uv sync --locked --extra dev --extra eval
 
       - name: Ingest the pinned corpus
         run: python -m taxcite ingest
 
       - name: Run the Ragas eval
-        run: python -m taxcite eval --out eval/weekly-report.json
+        run: uv run --frozen python -m taxcite eval --out eval/weekly-report.json
 
       - name: Compare against the committed baseline
         id: compare
