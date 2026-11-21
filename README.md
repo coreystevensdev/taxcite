@@ -152,7 +152,7 @@ Traces show: LangGraph state transitions (retrieve -> human_review -> generate_a
 
 ## How this was built
 
-Written with heavy AI assistance, and the thing worth reporting is that the first version of this pipeline scored 0.464 faithfulness, 0.136 answer relevancy and 0.102 context precision while looking entirely finished. Every component was plausible. Three bugs were sitting in it and each one hid the next.
+AI assistance was used, and the thing worth reporting is that the first version of this pipeline scored 0.464 faithfulness, 0.136 answer relevancy and 0.102 context precision while looking entirely finished. Every component was plausible. Three bugs were sitting in it and each one hid the next.
 
 `pdfplumber` returned the two columns of each IRS page zippered together, so every chunk was two half-sentences from unrelated passages. The IVFFlat index was built during migration before any rows existed, and IVFFlat derives its centroids from the data present at build time, so on an empty table a query probed one meaningless list out of a hundred: 11 of the 50 questions retrieved nothing at all. Generation then ran at `max_tokens=1024`, which was survivable only because retrieval was returning nothing to write about.
 
