@@ -168,6 +168,17 @@ jobs:
             if curl -fsS http://127.0.0.1:8085/health >/dev/null 2>&1; then
               echo "healthy after $((i * 5))s"
 
+              # Housekeeping, and only once /health has answered: a failed deploy
+              # keeps the image it would roll back to. Six services share a 16GiB
+              # instance and every deploy left its predecessor on disk, which took
+              # it to 99% on 2026-11-20 and killed a deploy with "no space left on
+              # device". Two manual prunes reclaimed 10.8GB that day.
+              #
+              # ECR holds every tag, so this costs a pull on rollback rather than a
+              # rollback. `|| true` because a deploy that worked should not go red
+              # over tidying up after itself.
+              docker image prune -a -f >/dev/null 2>&1 || true
+
               exit 0
             fi
             sleep 5
