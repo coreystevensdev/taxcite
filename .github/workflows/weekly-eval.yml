@@ -10,10 +10,18 @@
 # Cost is not a fixed figure the way invoiceflow's is. cost.py caps this repo's
 # own calls per month (embed $2, rerank $2, generation $8) but those ledgers live
 # in process, so a fresh runner starts each run at zero and the caps bound one run
-# rather than a month. The Ragas judge is not covered at all: eval_harness.py
-# never imports cost, and its ChatAnthropic judge runs at max_tokens=8192 across
-# three metrics over 50 questions. Watch the first few runs before trusting a
-# number here.
+# rather than a month.
+#
+# The Ragas judge is capped too now, by judge_cap, which eval_harness.py installs
+# as a LangChain callback on the ChatAnthropic judge. Its rolling-median layer is
+# deliberately loose at multiplier=8.0: the judge runs a different prompt per
+# metric and context_precision judges one chunk where faithfulness judges a whole
+# answer, so a tight median over all three measures variance rather than anomaly.
+# At 3.0 it killed 292 calls and left faithfulness at 22 of 50.
+#
+# Observed per-call cost across a real run: $0.0138 to $0.0621, averaging $0.0332
+# over 150 judge jobs, so a clean run is single-digit dollars. The $0.25 per-call
+# ceiling and $25 monthly budget are the layers that actually bound it.
 
 name: Weekly eval
 
