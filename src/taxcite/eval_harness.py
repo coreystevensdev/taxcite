@@ -221,6 +221,71 @@ class JudgeCostCap(BaseCallbackHandler):
             )
 
 
+# Every backslash before an apostrophe, including one that is itself escaped.
+# No lookbehind, because the guard below makes it redundant: on valid JSON like
+# "C:\\" followed by an apostrophe, stripping the wrong backslash leaves \' and
+# the candidate fails to parse, so the original is returned. A lookbehind cannot
+# change any outcome here, and a mutation removing it passes every test.
+_ILLEGAL_ESCAPE = re.compile(r"\\'")
+
+
+def repair_json_escapes(text: str) -> str:
+    """Drop backslashes that JSON does not allow, and only when that fixes it.
+
+    The judge quotes IRS prose and writes `isn\\'t` inside a JSON string. That
+    is a legal escape in Python and JavaScript and an illegal one in JSON, where
+    the list is \\" \\\\ \\/ \\b \\f \\n \\r \\t and \\uXXXX, so the parse fails on
+    content the model otherwise got right.
+
+    Retrying cannot help. temperature is 0, so the same answer re-renders the
+    same way and ragas gets the identical invalid string on all three of its
+    attempts. On 2026-11-22 that cost one faithfulness question of fifty, and
+    with it the run's promotability, since the committed report is held to every
+    question scored.
+
+    Self-limiting on purpose: the repaired string is returned only when the
+    original does not parse and the repair does. Anything else comes back
+    untouched, so this cannot quietly rewrite output that was already fine.
+    """
+    stripped = text.strip()
+    if not stripped.startswith(("{", "[")):
+        return text
+    try:
+        json.loads(stripped)
+    except json.JSONDecodeError:
+        pass
+    else:
+        return text
+
+    candidate = _ILLEGAL_ESCAPE.sub("'", text)
+    if candidate == text:
+        return text
+    try:
+        json.loads(candidate.strip())
+    except json.JSONDecodeError:
+        return text
+    return candidate
+
+
+def _repair_generations(wrapper):
+    """Repair the judge's output before ragas parses it.
+
+    Wrapping generate rather than the parser because ragas owns the parse and
+    reads generations[i][0].text straight off this result.
+    """
+    inner = wrapper.generate
+
+    async def generate(*args, **kwargs):
+        result = await inner(*args, **kwargs)
+        for generations in result.generations:
+            for generation in generations:
+                generation.text = repair_json_escapes(generation.text)
+        return result
+
+    wrapper.generate = generate
+    return wrapper
+
+
 def _judge_llm():
     """Claude as the judge, rather than whatever Ragas reaches for by default.
 
@@ -231,7 +296,7 @@ def _judge_llm():
     from langchain_anthropic import ChatAnthropic
     from ragas.llms import LangchainLLMWrapper
 
-    return LangchainLLMWrapper(
+    return _repair_generations(LangchainLLMWrapper(
         is_finished_parser=judge_finished,
         langchain_llm=ChatAnthropic(
             model=os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
@@ -239,7 +304,7 @@ def _judge_llm():
             max_tokens=8192,
             callbacks=[JudgeCostCap()],
         )
-    )
+    ))
 
 
 def _judge_embeddings():

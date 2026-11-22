@@ -374,3 +374,83 @@ class TestJudgeCostRecording:
             cost_module.judge_cap = original
 
         assert judge_cost_stats()["calls"] == 1
+
+
+class TestJudgeJsonRepair:
+    """The judge writes an escape JSON does not have, and retrying cannot help.
+
+    On 2026-11-22 run 45066193925 lost one faithfulness question of fifty to
+    `isn\\'t` inside a JSON string: legal in Python and JavaScript, illegal in
+    JSON. temperature is 0, so ragas' three parse retries each received the
+    identical invalid string, and 49/50 is publishable but not promotable.
+    """
+
+    def test_repairs_the_escape_that_actually_broke_a_run(self):
+        import json
+
+        from taxcite.eval_harness import repair_json_escapes
+
+        broken = r'{"statements": [{"statement": "x", "reason": "income that isn\'t exempt", "verdict": 1}]}'
+        with pytest.raises(json.JSONDecodeError):
+            json.loads(broken)
+
+        parsed = json.loads(repair_json_escapes(broken))
+        assert parsed["statements"][0]["reason"] == "income that isn't exempt"
+
+    def test_leaves_valid_json_exactly_as_it_was(self):
+        from taxcite.eval_harness import repair_json_escapes
+
+        good = '{"statements": [{"statement": "x", "verdict": 1}]}'
+        assert repair_json_escapes(good) == good
+
+    def test_leaves_prose_alone(self):
+        from taxcite.eval_harness import repair_json_escapes
+
+        prose = "I can\\'t answer that"
+        assert repair_json_escapes(prose) == prose
+
+    def test_returns_the_original_when_the_repair_does_not_help(self):
+        # Otherwise a different parse failure comes back mangled, and the error
+        # a reader sees is about text this function invented.
+        from taxcite.eval_harness import repair_json_escapes
+
+        truncated = r'{"statements": [{"reason": "isn\'t exempt"'
+        assert repair_json_escapes(truncated) == truncated
+
+    def test_does_not_corrupt_a_backslash_before_an_apostrophe(self):
+        import json
+
+        from taxcite.eval_harness import repair_json_escapes
+
+        # An escaped backslash followed by a literal apostrophe is already
+        # valid, and the naive substitution would leave \' behind and break it.
+        # What protects this is the guard, not the pattern: the broken candidate
+        # fails to parse, so the original comes back.
+        valid = r'{"path": "C:\\", "note": "o\u0027k"}'
+        json.loads(valid)
+        assert repair_json_escapes(valid) == valid
+
+        tricky = '{"a": "C:' + chr(92) + chr(92) + chr(39) + '"}'
+        assert json.loads(tricky)["a"] == "C:" + chr(92) + chr(39)
+        assert repair_json_escapes(tricky) == tricky
+
+    def test_repairs_every_generation_the_judge_returns(self):
+        # asyncio.run rather than pytest.mark.asyncio: this repo has no
+        # pytest-asyncio and one test does not earn the dependency.
+        import asyncio
+        import json
+        from types import SimpleNamespace
+
+        from taxcite.eval_harness import _repair_generations
+
+        gens = [[SimpleNamespace(text=r'{"reason": "isn\'t exempt"}')]]
+        wrapper = SimpleNamespace()
+
+        async def generate(*_args, **_kwargs):
+            return SimpleNamespace(generations=gens)
+
+        wrapper.generate = generate
+        _repair_generations(wrapper)
+
+        result = asyncio.run(wrapper.generate())
+        assert json.loads(result.generations[0][0].text)["reason"] == "isn't exempt"
