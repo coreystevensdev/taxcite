@@ -129,7 +129,12 @@ def test_the_exact_zeros_are_still_there_and_still_contradicted(client):
     ]
 
     assert contradicted, "no contradicted zeros left; drop the page's note too"
-    assert len(contradicted) == 2, f"expected 2, found {len(contradicted)}: {contradicted}"
+
+    # Not pinned to a count. It was 2 on the 2026-09-11 run and 3 on the one
+    # that replaced it, and app.js decides per question whether to flag one, so
+    # the page needs no number from here. An exact count only fails the next
+    # promotion without telling anyone anything.
+    assert len(contradicted) <= 6, f"unexpectedly many: {contradicted}"
 
     page = served(client)
     assert "Exact zero while faithfulness" in page

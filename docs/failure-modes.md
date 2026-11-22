@@ -173,10 +173,19 @@ question's own scores, which is what makes a retrieval change a paired compariso
 instead of two means that might differ by noise.
 
 **Before comparing anything, check provenance.** A run records `provenance` and
-`score_coverage`; `eval/report.json` as committed is from 2026-09-11 and predates
-both fields, so it carries no model version or code revision and cannot serve as a
-baseline for a later run. Generate a fresh baseline before attributing a
-difference to your change. That ambiguity has already cost one full re-run.
+`score_coverage`, and `eval/report.json` now carries both: the committed run is
+from 2026-11-22 at revision `8721f38`, scored by `claude-sonnet-4-6`, with all
+50 questions scored on all three metrics. So it is a usable baseline, which the
+2026-09-11 run it replaced was not, having predated both fields. Check the
+revision before attributing a difference to your change rather than assuming the
+committed run is current.
+
+**Publishable and promotable are different bars.** `MIN_SCORE_COVERAGE` is 0.9,
+so a run publishes with 45 of 50 scored, while `tests/test_eval_page.py` holds
+the committed report to every question scored, because a null renders as "n/a"
+and shrinks what the page claims to have measured. A run can clear the first and
+fail the second, and one did: the 2026-11-22 09:47 run is committed because it
+scored 50 of 50, and the 04:49 run before it is not.
 
 **Recovery:** roll the change back and re-run. If a change is worth keeping at a
 lower score, update the README's numbers and say why in the same commit.
