@@ -296,3 +296,23 @@ def test_judge_finished_prefers_generation_info_when_present():
 
     truncated = _llm_result("finish_reason", "end_turn", generation_info={"finish_reason": "max_tokens"})
     assert judge_finished(truncated) is False
+
+
+def test_judge_cost_cap_raises_rather_than_logging():
+    """langchain_core defaults BaseCallbackHandler.raise_error to False and only
+    re-raises when it is True, so a cap that does not set it is a log line
+    rather than a ceiling. Imported directly: _judge_llm needs langchain_anthropic
+    from the eval extra, which the default CI sync does not install."""
+    import pytest
+    from langchain_core.callbacks.manager import handle_event
+
+    from taxcite.eval_harness import JudgeCostCap
+
+    assert JudgeCostCap.raise_error is True
+
+    class _Boom(JudgeCostCap):
+        def on_llm_end(self, response, **_kwargs):
+            raise RuntimeError("cap tripped")
+
+    with pytest.raises(RuntimeError, match="cap tripped"):
+        handle_event([_Boom()], "on_llm_end", None, None)
