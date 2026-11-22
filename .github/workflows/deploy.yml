@@ -111,6 +111,10 @@ jobs:
           #!/bin/bash
           set -euo pipefail
           IMAGE="$1"
+          # $2, not $INSTANCE_ID. This heredoc is quoted, so the name would reach
+          # the instance unexpanded, and set -u aborts on it there: the operator
+          # got "To read them:" and then nothing, and exit 1 never ran.
+          INSTANCE_ID="$2"
           REGION=us-east-1
           REGISTRY=401716295306.dkr.ecr.us-east-1.amazonaws.com
 
@@ -199,7 +203,7 @@ jobs:
             --instance-ids "$INSTANCE_ID" \
             --document-name AWS-RunShellScript \
             --comment "deploy taxcite $IMAGE" \
-            --parameters "commands=[\"echo $B64 | base64 -d | bash -s -- $IMAGE\"]" \
+            --parameters "commands=[\"echo $B64 | base64 -d | bash -s -- $IMAGE $INSTANCE_ID\"]" \
             --query Command.CommandId --output text)
           echo "SSM command: $CMD"
 
