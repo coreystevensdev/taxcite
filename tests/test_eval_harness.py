@@ -246,3 +246,53 @@ def test_judge_call_cost_raises_rather_than_pricing_an_unknown_shape():
 
     with pytest.raises(cost.CostBudgetExceeded, match="no recognised token counts"):
         judge_call_cost(_judge_response(llm_output={"usage": {"tokens_in": 1, "tokens_out": 2}}))
+
+
+def _llm_result(reason_key=None, reason=None, generation_info=None):
+    """An LLMResult-shaped stand-in carrying one generation."""
+    from types import SimpleNamespace
+
+    metadata = {reason_key: reason} if reason_key else {}
+    generation = SimpleNamespace(
+        generation_info=generation_info,
+        message=SimpleNamespace(response_metadata=metadata),
+    )
+    flat = SimpleNamespace(generations=[[generation]])
+    return SimpleNamespace(flatten=lambda: [flat])
+
+
+def test_judge_finished_accepts_anthropics_end_turn():
+    from taxcite.eval_harness import judge_finished
+
+    # langchain-anthropic 1.7 sets finish_reason to Anthropic's own value, which
+    # ragas 0.4 checks against OpenAI's list. This is the regression.
+    assert judge_finished(_llm_result("finish_reason", "end_turn")) is True
+    assert judge_finished(_llm_result("stop_reason", "end_turn")) is True
+
+
+def test_judge_finished_still_rejects_a_truncated_response():
+    from taxcite.eval_harness import judge_finished
+
+    # The check exists for this case, so widening the vocabulary must not swallow it.
+    assert judge_finished(_llm_result("finish_reason", "max_tokens")) is False
+    assert judge_finished(_llm_result("stop_reason", "max_tokens")) is False
+
+
+def test_judge_finished_keeps_the_openai_and_vertex_vocabulary():
+    from taxcite.eval_harness import judge_finished
+
+    for reason in ("stop", "STOP", "MAX_TOKENS", "eos_token"):
+        assert judge_finished(_llm_result("finish_reason", reason)) is True
+
+
+def test_judge_finished_defaults_to_finished_when_nothing_reports_a_reason():
+    from taxcite.eval_harness import judge_finished
+
+    assert judge_finished(_llm_result()) is True
+
+
+def test_judge_finished_prefers_generation_info_when_present():
+    from taxcite.eval_harness import judge_finished
+
+    truncated = _llm_result("finish_reason", "end_turn", generation_info={"finish_reason": "max_tokens"})
+    assert judge_finished(truncated) is False
