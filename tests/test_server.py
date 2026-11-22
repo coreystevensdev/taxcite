@@ -4,6 +4,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import psycopg2
+import anthropic
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -17,6 +19,15 @@ _BASE_STATE = {
 }
 
 _VALID_THREAD_ID = "123e4567-e89b-12d3-a456-426614174000"
+
+
+def _bad_request(message: str) -> "anthropic.BadRequestError":
+    response = httpx.Response(400, request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"))
+    return anthropic.BadRequestError(message, response=response, body=None)
+
+
+def _credit_error() -> "anthropic.BadRequestError":
+    return _bad_request("Your credit balance is too low to access the Anthropic API.")
 
 
 def _mock_graph(
@@ -47,6 +58,23 @@ class TestHealth:
         resp = client.get("/health")
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
+
+
+@pytest.fixture(autouse=True)
+def fresh_rate_limit():
+    """Clear the limiter before each test, because /ask allows 10 a minute and
+    this file makes more calls than that. The budget used to be shared across
+    the whole file, so adding a test could push an unrelated one into a 429,
+    which is how three of them failed in the full suite while passing alone.
+
+    It has to be server.limiter rather than app.state.limiter: the @limiter.limit
+    decorators bound to the module-level object at import time, so swapping what
+    app.state points at resets nothing.
+    """
+    from taxcite import server
+
+    server.limiter.reset()
+    yield
 
 
 @pytest.fixture(autouse=True)
@@ -119,6 +147,54 @@ class TestAsk:
 
         assert resp.status_code == 503
 
+    def test_credit_exhaustion_returns_503_not_500(self):
+        mock = MagicMock()
+        mock.invoke.side_effect = _credit_error()
+        with patch("taxcite.server._graph", mock):
+            client = TestClient(app)
+            resp = client.post("/ask", json={"question": "test question"})
+
+        assert resp.status_code == 503
+        assert "model credits" in resp.json()["detail"]
+
+    def test_a_different_bad_request_is_not_called_a_credit_problem(self):
+        # BadRequestError covers every malformed request, so matching on the
+        # message is the only signal. Anything else keeps the behaviour it had.
+        mock = MagicMock()
+        mock.invoke.side_effect = _bad_request("max_tokens: must be >= 1")
+        with patch("taxcite.server._graph", mock):
+            client = TestClient(app, raise_server_exceptions=False)
+            resp = client.post("/ask", json={"question": "test question"})
+
+        assert resp.status_code == 500
+        assert "model credits" not in resp.text
+
+    def test_a_refusal_makes_status_say_no_credits(self):
+        # The end-to-end shape of the 2026-11-22 outage: a refusal happens, and
+        # the endpoint a reader checks has to stop saying live. Asserting only
+        # the 503 leaves the recording untested, which a mutation proved.
+        from taxcite import server
+
+        server._billing["blocked"] = False
+        mock = MagicMock()
+        mock.invoke.side_effect = _credit_error()
+        with patch("taxcite.server._graph", mock):
+            client = TestClient(app)
+            assert client.post("/ask", json={"question": "test question"}).status_code == 503
+            assert client.get("/status").json()["answering"] == "no_credits"
+
+    def test_a_working_generation_clears_the_credit_flag(self):
+        # Otherwise the first refusal latches and /status reports no_credits
+        # forever, which is the same defect as reporting live forever.
+        from taxcite import server
+
+        server._billing["blocked"] = True
+        mock = _mock_graph("Yes, it is deductible.", [])
+        with patch("taxcite.server._graph", mock):
+            client = TestClient(app)
+            assert client.post("/ask", json={"question": "test question"}).status_code == 200
+            assert client.get("/status").json()["answering"] == "live"
+
     def test_database_unavailable_returns_503(self):
         import psycopg2
 
@@ -147,8 +223,14 @@ class TestIngestThread:
     def test_records_failing_stage_and_cause(self):
         from taxcite import server
 
+        # release_connection has to be patched alongside get_connection, the way
+        # the three tests below already do it. _run_ingest_thread returns the
+        # connection in a finally, and a real pool refuses a MagicMock with
+        # "trying to put unkeyed connection". This passed only while nothing
+        # earlier in the session had opened a pool.
         with patch.dict(server._ingest, {}, clear=True), \
                 patch("taxcite.db.get_connection") as mock_conn, \
+                patch("taxcite.db.release_connection"), \
                 patch("taxcite.fetch.fetch_publication", side_effect=RuntimeError("HTTP 404 from IRS")):
             mock_conn.return_value = MagicMock()
             server._run_ingest_thread()

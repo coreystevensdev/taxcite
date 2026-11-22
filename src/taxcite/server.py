@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
+import anthropic
 import psycopg2
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.gzip import GZipMiddleware
@@ -27,6 +28,25 @@ logger = logging.getLogger(__name__)
 
 # Tracks background ingest state so /status can surface it.
 _ingest: dict[str, object] = {"state": "idle"}
+
+# Set when Anthropic refuses on balance, cleared by the next generation that
+# works. /status needs it because key presence cannot tell a configured
+# deployment from a funded one, and on 2026-11-22 that gap let the endpoint
+# report "live" through an outage where every answer 500'd.
+#
+# A dict for the same reason _ingest is one: the routes mutate it, and a plain
+# module-level bool would need `global` in each of them to not quietly become a
+# local that nothing reads.
+_billing: dict[str, bool] = {"blocked": False}
+
+# Anthropic gives an exhausted balance no distinct error type or code: it is a
+# BadRequestError whose message names it. Matching the text is fragile, so a miss
+# falls through to the behaviour this had before rather than to a wrong answer.
+_CREDIT_EXHAUSTED = "credit balance is too low"
+
+
+def _is_credit_exhausted(exc: anthropic.BadRequestError) -> bool:
+    return _CREDIT_EXHAUSTED in str(exc)
 
 
 def _run_ingest_thread() -> None:
@@ -203,7 +223,14 @@ def status() -> dict:
 
     # The page needs to know this before it renders a control that may not work.
     # Names only, never values: this endpoint is public.
-    answering = "live" if all(os.environ.get(k) for k in _REQUIRED_KEYS) else "not_configured"
+    if not all(os.environ.get(k) for k in _REQUIRED_KEYS):
+        answering = "not_configured"
+    elif _billing["blocked"]:
+        # Observed, not probed: checking a balance costs a call, so this reports
+        # what the last generation actually got back.
+        answering = "no_credits"
+    else:
+        answering = "live"
 
     body: dict = {
         "ingest": _ingest["state"],
@@ -259,6 +286,18 @@ def ask(request: Request, req: AskRequest) -> AskCompleteResponse | AskAwaitingR
             status_code=503,
             detail="Service temporarily unavailable due to usage limits. Retry later.",
         ) from exc
+    except anthropic.BadRequestError as exc:
+        # Nothing caught this before: BadRequestError descends from Exception,
+        # not ValueError or RuntimeError, so it reached FastAPI's default
+        # handler and a visitor saw a bare "Internal Server Error".
+        if not _is_credit_exhausted(exc):
+            raise
+        _billing["blocked"] = True
+        logger.error("Anthropic refused on balance for thread %s", thread_id)
+        raise HTTPException(
+            status_code=503,
+            detail="Answer generation is unavailable: this deployment is out of model credits.",
+        ) from exc
     except psycopg2.OperationalError as exc:
         # DB is unreachable or down: a dependency failure, not a server bug.
         logger.exception("Database unavailable for thread %s", thread_id)
@@ -268,6 +307,7 @@ def ask(request: Request, req: AskRequest) -> AskCompleteResponse | AskAwaitingR
         logger.exception("Graph execution failed for thread %s", thread_id)
         raise HTTPException(status_code=500, detail="Graph execution failed. Check server logs.") from exc
 
+    _billing["blocked"] = False
     snapshot = _graph.get_state(config)
 
     if snapshot.next:
@@ -310,6 +350,18 @@ def ask_resume(request: Request, req: ResumeRequest) -> AskCompleteResponse:
             status_code=503,
             detail="Service temporarily unavailable due to usage limits. Retry later.",
         ) from exc
+    except anthropic.BadRequestError as exc:
+        # Nothing caught this before: BadRequestError descends from Exception,
+        # not ValueError or RuntimeError, so it reached FastAPI's default
+        # handler and a visitor saw a bare "Internal Server Error".
+        if not _is_credit_exhausted(exc):
+            raise
+        _billing["blocked"] = True
+        logger.error("Anthropic refused on balance for thread %s", req.thread_id)
+        raise HTTPException(
+            status_code=503,
+            detail="Answer generation is unavailable: this deployment is out of model credits.",
+        ) from exc
     except psycopg2.OperationalError as exc:
         # DB is unreachable or down: a dependency failure, not a server bug.
         logger.exception("Database unavailable for thread %s", req.thread_id)
@@ -319,6 +371,7 @@ def ask_resume(request: Request, req: ResumeRequest) -> AskCompleteResponse:
         logger.exception("Graph resume failed for thread %s", req.thread_id)
         raise HTTPException(status_code=500, detail="Graph resume failed. Check server logs.") from exc
 
+    _billing["blocked"] = False
     values = _graph.get_state(config).values
     return AskCompleteResponse(
         answer=values.get("answer", ""),

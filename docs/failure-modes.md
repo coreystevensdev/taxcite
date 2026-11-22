@@ -21,8 +21,13 @@ failure below.
 - `chunks_by_pub` comes from a real query when `DATABASE_URL` is set. An empty map
   with a 200 means the corpus was never ingested; `count_chunks` failing is caught
   on purpose so this endpoint can report that rather than be the thing that fails.
-- `answering` is `live` or `not_configured`, from the presence of the required API
-  keys. Names only, never values. Check this before blaming the model for a 500.
+- `answering` is `live`, `no_credits` or `not_configured`. Names only, never
+  values. Check this before blaming the model for a 500. `not_configured` is key
+  presence; `no_credits` is observed rather than probed, since checking a balance
+  costs a call, so it reports what the last generation actually got back and
+  clears on the next one that works. That distinction exists because on
+  2026-11-22 the balance hit zero, every answer failed, and this field said
+  `live` throughout: key presence cannot tell configured from funded.
 
 One sharp edge worth knowing: `db.get_connection()` at `server.py:193` sits
 *outside* that try block, so if the database is unreachable `/status` raises and
@@ -68,6 +73,14 @@ Three distinct outcomes, and they are not interchangeable:
   `Cost cap tripped for thread <id>`, and the caller gets **503** with
   "Service temporarily unavailable due to usage limits." Budget figures stay in
   the log and out of the response on purpose.
+- The account is out of credits. Logged as `Anthropic refused on balance for
+  thread <id>`, and the caller gets **503** saying the deployment is out of model
+  credits. This used to be a bare 500 from FastAPI's default handler, because
+  `anthropic.BadRequestError` descends from `Exception` rather than `ValueError`
+  or `RuntimeError` and no clause caught it. Anthropic gives an exhausted balance
+  no distinct type or code, so the message text is the only signal; any other
+  `BadRequestError` still reaches the default handler rather than being
+  mislabelled.
 - A rate limit or transport error reaches the generic handler and is logged as
   `Graph execution failed for thread <id>` with a traceback.
 - Nothing retries. There is no retry, no backoff and no circuit breaker anywhere
