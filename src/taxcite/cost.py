@@ -50,17 +50,27 @@ generation_cap = CostCap(
 )
 
 
-# A fourth workload, and until now the only uncapped one. The Ragas judge runs a
-# different call shape from generation (one prompt per metric per question, and
-# context_precision judges each retrieved chunk), so it needs its own window for
-# the reason the three above do: a shared rolling median would describe neither.
+# The Ragas judge, which was the only uncapped spender until 2026-11-21.
 #
-# The budget is a ceiling, not a measurement. No armed run has been completed, so
-# this is set high enough that the first one finishes and reports what a run
-# actually costs, and low enough that a loop cannot quietly spend the month.
-# Lower it once there is a figure.
+# multiplier=8.0, not the 3.0 the three above use, and the reason is the same
+# one this file gives for splitting their windows: a rolling median only
+# calibrates to a homogeneous workload. The judge is not one. It runs a
+# different prompt per metric, and context_precision judges a single retrieved
+# chunk while faithfulness judges a whole answer, so one window mixes call
+# shapes that differ several-fold.
+#
+# Measured on the 2026-11-21 run rather than guessed: observed judge costs
+# ranged $0.0138 to $0.0621, a 4.5x spread, and at 3.0 the cap tripped 292
+# times and killed more than half the calls, leaving faithfulness at 22 of 50
+# and the run unpublishable. Every one of those trips was the median layer;
+# neither fixed layer fired. fairline's generation cap is 8.0 for the same
+# arithmetic, with the same 4.5x figure in its own comment.
+#
+# The two fixed layers are what actually bound spend. That run reached $13.57
+# of judge spend before failing, so a completed run costs more than that and
+# the monthly budget stays at 25 until a full one reports a number.
 judge_cap = CostCap(
-    multiplier=3.0,
+    multiplier=8.0,
     window=50,
     min_samples=5,
     absolute_ceiling=0.25,
