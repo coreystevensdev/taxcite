@@ -1,7 +1,7 @@
 # TaxCite
 
 ![CI](https://github.com/coreystevensdev/taxcite/actions/workflows/tests.yml/badge.svg)
-![121 tests](https://img.shields.io/badge/tests-123-brightgreen)
+![123 tests](https://img.shields.io/badge/tests-123-brightgreen)
 
 **[Try it: taxcite.coreystevens.dev](https://taxcite.coreystevens.dev/)**: the page opens on the eval, so you see 50 real questions with the answer given, the passages retrieval pulled, and what each one scored, worst first.
 
@@ -23,7 +23,7 @@ A retrieval-augmented generation pipeline that ingests 14 IRS publications into 
 
 ```mermaid
 flowchart TD
-    A["POST /ask"] --> B["retrieve\nembed query via Voyage AI voyage-3.5-lite\npgvector cosine search, top-8 chunks"]
+    A["POST /ask"] --> B["retrieve\nembed query via Voyage AI voyage-3.5-lite\npgvector cosine search, 24 candidates\nrerank-2 cross-encoder narrows to 8"]
     B -->|empty| C["No relevant excerpts found"]
     B -->|chunks found| D["human_review\ninterrupt(): graph pauses\nclient receives thread_id + chunks_preview"]
     D -->|approved: false| E["Review cancelled"]
@@ -46,7 +46,7 @@ The LangGraph state machine has five nodes with two conditional edges. `retrieve
 
 Ragas evaluation over 50 questions spanning all 14 ingested IRS publications, scoring faithfulness, answer relevancy, and context precision. Questions include numeric exact-match cases (dollar thresholds, age limits, percentages) and conceptual retrieval cases. Claude judges and Voyage embeds, so the eval needs no third provider; the judge's embedder is `voyage-3` while the agent retrieves with `voyage-3.5-lite`, same vendor and same 1024 dimensions but not the same model. Every question's own scores are kept in the report alongside the aggregate, which is what turns a retrieval change into a paired comparison rather than two means that might differ by noise.
 
-Latest run, committed at `eval/report.json`:
+The run committed at `eval/report.json`, from 2026-09-11. It predates the `provenance` and `score_coverage` fields the harness writes now, so it carries no model version or code revision and cannot be compared against a later run as a paired measurement. A fresh run produces both:
 
 | Metric | Score |
 |---|---|
@@ -73,7 +73,7 @@ cat eval/report.json
 
 | Layer | Technology | Why |
 |---|---|---|
-| Retrieval | pgvector (ivfflat cosine) | Native PostgreSQL extension; no separate vector DB service |
+| Retrieval | pgvector (HNSW, cosine) | Native PostgreSQL extension; no separate vector DB service. HNSW rather than IVFFlat because the index is built at migration time, before any rows exist |
 | Embeddings | Voyage AI voyage-3.5-lite, 1024-dim | Outperforms OpenAI text-embedding-3-small on retrieval benchmarks at lower cost |
 | Agent | LangGraph StateGraph | Explicit state machine separates retrieval and generation; conditional routing is auditable |
 | Generation | Anthropic claude-sonnet-4-6 | Forced tool call enforces structured citation output |
@@ -167,6 +167,10 @@ None of that was visible from reading the code, and none of it would have been c
 Two guards exist because of it. The judge is wired explicitly in `_judge_llm` rather than left to whatever Ragas reaches for, so scoring cannot silently fall back to a provider this project does not configure. And every question's own score is committed next to the aggregate in `eval/report.json`, which is what makes a retrieval change a paired comparison rather than two means that might differ by noise. Both runs behind the reranker comparison are committed too, so the run-to-run spread the argument rests on is a file rather than a claim.
 
 Answer relevancy at 0.633 is the weakest of the three scores and it stays in Known Limitations rather than being explained away.
+
+## Failure Modes
+
+[docs/failure-modes.md](docs/failure-modes.md) covers how each dependency fails, which tracer can actually see it, and what to do. It is written against the current node names and schema rather than from memory.
 
 ## Known Limitations
 
