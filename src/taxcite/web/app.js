@@ -22,6 +22,10 @@ function renderAggregate() {
   const m = data.metrics;
   const zeros = data.per_question.flatMap(q =>
     METRICS.filter(([k]) => q.scores[k] === 0).map(([k]) => k));
+  // A zero beside a high faithfulness is the scorer failing: both are computed
+  // against the same passages, so they cannot both be right.
+  const suspect = data.per_question.filter(
+    q => METRICS.some(([k]) => q.scores[k] === 0) && q.scores.faithfulness >= 0.9);
   $("corpus").textContent =
     `corpus tax year ${data.corpus_tax_year} · ${data.n_questions} questions · ` +
     `${data.per_question.reduce((a, q) => a + q.retrieved_contexts.length, 0)} passages retrieved in total`;
@@ -45,10 +49,13 @@ function renderAggregate() {
     `so a thorough answer that covers conditions and exceptions scores lower than a terse one. ` +
     `Sort worst first and read a few: the low scorers are mostly long, not wrong.` +
     (zeros.length ? `<br><br><strong>${zeros.length} scores came back as exactly 0.000.</strong> ` +
-      `Two of them sit beside a faithfulness of 1.000 and 0.944, which are computed against the ` +
-      `same retrieved passages, so those two cannot both be right. They look like the scorer ` +
-      `failing rather than an answer scoring nothing. They are left in the published means ` +
-      `above; dropping all four would read ` +
+      (suspect.length
+        ? `${suspect.length} of them sit beside a faithfulness of ` +
+          suspect.map(q => n3(q.scores.faithfulness)).join(" and ") +
+          `, which are computed against the same retrieved passages, so those cannot both be ` +
+          `right. They look like the scorer failing rather than an answer scoring nothing. `
+        : "") +
+      `They are left in the published means above; dropping all ${zeros.length} would read ` +
       METRICS.filter(([k]) => data.per_question.some(q => q.scores[k] === 0))
         .map(([k, label]) => {
           const kept = data.per_question.map(q => q.scores[k]).filter(v => v !== 0);
