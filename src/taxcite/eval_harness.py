@@ -108,8 +108,11 @@ def judge_call_cost(response) -> float:
             "judge response carried no token usage, so its cost cannot be bounded"
         )
 
-    read = lambda *names: next((usage[n] for n in names if n in usage), None)
-    sent, produced = read("input_tokens", "prompt_tokens"), read("output_tokens", "completion_tokens")
+    def read(*names):
+        return next((usage[n] for n in names if n in usage), None)
+
+    sent = read("input_tokens", "prompt_tokens")
+    produced = read("output_tokens", "completion_tokens")
     if sent is None or produced is None:
         raise cost.CostBudgetExceeded(
             f"judge usage has no recognised token counts: {sorted(usage)}"
@@ -163,6 +166,12 @@ def _judge_llm():
     from ragas.llms import LangchainLLMWrapper
 
     class _JudgeCostCap(BaseCallbackHandler):
+        # Without this, langchain_core logs the exception and carries on:
+        # callbacks/base.py defaults raise_error to False and manager.py only
+        # re-raises when it is True. The cap would be a log line, not a ceiling,
+        # which is the opposite of what it is for.
+        raise_error = True
+
         def on_llm_end(self, response, **_kwargs) -> None:
             decision = cost.judge_cap.evaluate(judge_call_cost(response))
             if not decision.allowed:
