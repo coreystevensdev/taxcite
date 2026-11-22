@@ -326,7 +326,8 @@ def ask_resume(request: Request, req: ResumeRequest) -> AskCompleteResponse:
     )
 
 
-_PAGE = Path(__file__).resolve().parent / "web" / "index.html"
+_WEB = Path(__file__).resolve().parent / "web"
+_PAGE = _WEB / "index.html"
 
 
 def _find_report() -> Path:
@@ -348,12 +349,6 @@ def _find_report() -> Path:
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
-_ASSETS = {
-    "/app.css": (Path(__file__).resolve().parent / "web" / "app.css", "text/css"),
-    "/app.js": (Path(__file__).resolve().parent / "web" / "app.js", "application/javascript"),
-}
-
-
 # The page used to carry both of these inline, which is why it could not have a
 # Content-Security-Policy worth setting: any policy permitting its own <script>
 # also permits an injected one. Nine innerHTML assignments render report prose,
@@ -364,14 +359,12 @@ _ASSETS = {
 # attribute buys nothing that 'self' does not already give. Files also cache.
 @app.get("/app.css", include_in_schema=False)
 async def app_css():
-    path, media = _ASSETS["/app.css"]
-    return FileResponse(path, media_type=media)
+    return FileResponse(_WEB / "app.css", media_type="text/css")
 
 
 @app.get("/app.js", include_in_schema=False)
 async def app_js():
-    path, media = _ASSETS["/app.js"]
-    return FileResponse(path, media_type=media)
+    return FileResponse(_WEB / "app.js", media_type="application/javascript")
 
 
 # Built once. style-src keeps 'unsafe-inline' because five style= attributes and
