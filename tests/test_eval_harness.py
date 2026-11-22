@@ -316,3 +316,61 @@ def test_judge_cost_cap_raises_rather_than_logging():
 
     with pytest.raises(RuntimeError, match="cap tripped"):
         handle_event([_Boom()], "on_llm_end", None, None)
+
+
+class TestJudgeCostRecording:
+    """What the judge cost has to survive the run that spent it.
+
+    The first version of this was a logger.info per call and emitted nothing,
+    because `python -m taxcite eval` configures no logging. These pin the
+    replacement: the numbers reach the report.
+    """
+
+    def setup_method(self):
+        from taxcite.eval_harness import reset_judge_costs
+
+        reset_judge_costs()
+
+    def test_reports_no_calls_rather_than_dividing_by_zero(self):
+        from taxcite.eval_harness import judge_cost_stats
+
+        assert judge_cost_stats() == {"calls": 0}
+
+    def test_summarises_the_spread_the_cap_is_judged_against(self):
+        from taxcite.eval_harness import JudgeCostCap, judge_cost_stats
+
+        cap = JudgeCostCap()
+        for tokens in (1000, 2000, 60000):
+            cap.on_llm_end(
+                _judge_response(usage_metadata={"input_tokens": tokens, "output_tokens": 10})
+            )
+
+        stats = judge_cost_stats()
+        assert stats["calls"] == 3
+        assert stats["min_usd"] < stats["median_usd"] < stats["max_usd"]
+        assert stats["total_usd"] == pytest.approx(
+            stats["min_usd"] + stats["median_usd"] + stats["max_usd"], rel=1e-3
+        )
+
+    def test_counts_a_blocked_call_too(self):
+        from taxcite import cost as cost_module
+        from taxcite.eval_harness import JudgeCostCap, judge_cost_stats
+
+        # A blocked call was still billed, so leaving it out would understate
+        # spend and pull the distribution toward the cheap end.
+        cap = JudgeCostCap()
+        blocking = MagicMock()
+        blocking.evaluate.return_value = MagicMock(
+            allowed=False, trip="rolling-median", observed=0.05, monthly_spend=1.0
+        )
+        original = cost_module.judge_cap
+        cost_module.judge_cap = blocking
+        try:
+            with pytest.raises(cost_module.CostBudgetExceeded):
+                cap.on_llm_end(
+                    _judge_response(usage_metadata={"input_tokens": 5000, "output_tokens": 10})
+                )
+        finally:
+            cost_module.judge_cap = original
+
+        assert judge_cost_stats()["calls"] == 1

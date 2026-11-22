@@ -15,9 +15,9 @@ OPENAI_API_KEY nor RAGAS_LLM is read anywhere in this project.
 from __future__ import annotations
 
 import json
-import logging
 import os
 import re
+import statistics
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -157,7 +157,40 @@ def judge_finished(response) -> bool:
     return True
 
 
-logger = logging.getLogger(__name__)
+# Every judge call's cost, in order. A list rather than a running summary
+# because the median is the number that matters here and it cannot be
+# accumulated: the 2026-11-22 runs turned on whether the window median was
+# $0.007 or $0.03, and that had to be inferred from a trip log, wrongly.
+_judge_call_costs: list[float] = []
+
+
+def reset_judge_costs() -> None:
+    _judge_call_costs.clear()
+
+
+def judge_cost_stats() -> dict:
+    """What the judge actually cost, for the report.
+
+    This replaces a logger.info per call that emitted nothing: `python -m
+    taxcite eval` configures no logging, so the root logger sits at WARNING and
+    every line was dropped. An instrument that never fires reads exactly like
+    one reporting all-clear.
+
+    The report is also the better home. A CI log is gone in ninety days and
+    cannot be diffed against the previous run; this ships next to the scores it
+    explains.
+    """
+    costs = sorted(_judge_call_costs)
+    if not costs:
+        return {"calls": 0}
+    return {
+        "calls": len(costs),
+        "total_usd": round(sum(costs), 4),
+        "min_usd": round(costs[0], 6),
+        "median_usd": round(statistics.median(costs), 6),
+        "max_usd": round(costs[-1], 6),
+    }
+
 
 
 class JudgeCostCap(BaseCallbackHandler):
@@ -173,16 +206,13 @@ class JudgeCostCap(BaseCallbackHandler):
     raise_error = True
 
     def on_llm_end(self, response, **_kwargs) -> None:
-        decision = cost.judge_cap.evaluate(judge_call_cost(response))
-        # Every call, not only the blocked ones. The 2026-11-22 run recorded 24
-        # trips and nothing else, so the distribution they were outliers against
-        # had to be inferred, and the inference did not survive arithmetic.
-        logger.info(
-            "judge call $%.6f (median $%s, monthly $%.4f)",
-            decision.observed,
-            f"{decision.median:.6f}" if decision.median is not None else "none",
-            decision.monthly_spend,
-        )
+        # Recorded before the cap judges it, and whatever the verdict: a blocked
+        # call was billed too, and leaving those out would understate the spend
+        # and skew the distribution toward the cheap end.
+        call_cost = judge_call_cost(response)
+        _judge_call_costs.append(call_cost)
+
+        decision = cost.judge_cap.evaluate(call_cost)
         if not decision.allowed:
             raise cost.CostBudgetExceeded(
                 f"judge blocked by cost cap ({decision.trip}): "
@@ -413,6 +443,7 @@ def run_eval(dataset_path: Path = DEFAULT_DATASET, report_path: Path = DEFAULT_R
     report = {
         "provenance": _provenance(),
         "score_coverage": _score_coverage(per_question),
+        "judge_cost": judge_cost_stats(),
         "metrics": _aggregate_metrics(scores),
         "n_questions": len(items),
         "corpus_tax_year": corpus_year,
@@ -432,4 +463,5 @@ def run_eval(dataset_path: Path = DEFAULT_DATASET, report_path: Path = DEFAULT_R
     report_path.write_text(json.dumps(report, indent=2))
     print(f"\nReport written to {report_path}")
     print("Scores:", report["metrics"])
+    print("Judge cost:", report["judge_cost"])
     return report
