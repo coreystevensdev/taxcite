@@ -223,8 +223,14 @@ class TestIngestThread:
     def test_records_failing_stage_and_cause(self):
         from taxcite import server
 
+        # release_connection has to be patched alongside get_connection, the way
+        # the three tests below already do it. _run_ingest_thread returns the
+        # connection in a finally, and a real pool refuses a MagicMock with
+        # "trying to put unkeyed connection". This passed only while nothing
+        # earlier in the session had opened a pool.
         with patch.dict(server._ingest, {}, clear=True), \
                 patch("taxcite.db.get_connection") as mock_conn, \
+                patch("taxcite.db.release_connection"), \
                 patch("taxcite.fetch.fetch_publication", side_effect=RuntimeError("HTTP 404 from IRS")):
             mock_conn.return_value = MagicMock()
             server._run_ingest_thread()
