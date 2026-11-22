@@ -32,11 +32,13 @@ empty `chunks_by_pub` with a 200 is not.
 There are two tracers and they answer different questions. Reaching for the wrong
 one is how you conclude a node failed when you cannot see nodes at all.
 
-**LangSmith gives per-node spans.** `langsmith` is a real dependency and LangGraph
-traces itself with no code in this repo, driven entirely by
-`LANGCHAIN_TRACING_V2`, `LANGCHAIN_API_KEY` and `LANGCHAIN_PROJECT`. This is the
-only place you can see `retrieve` succeed and `generate_answer` fail. README
-"LangSmith Tracing" has the setup and the shape of the trace tree.
+**LangSmith gives per-node spans.** LangGraph auto-instruments itself from
+`LANGCHAIN_TRACING_V2`, `LANGCHAIN_API_KEY` and `LANGCHAIN_PROJECT` with no code
+required, and three decorators add named spans on top: `@traceable` on
+`generate_answer` (`agent.py:101`), `embed_query` (`embed.py:50`) and `rerank`
+(`rerank.py:43`). This is the only place you can see `retrieve` succeed and
+`generate_answer` fail. README "LangSmith Tracing" has the setup and the shape of
+the trace tree.
 
 **OpenTelemetry gives one span per HTTP request and nothing finer.**
 `server.py:76-97` wires an OTLP exporter only when `OTEL_EXPORTER_OTLP_ENDPOINT`
