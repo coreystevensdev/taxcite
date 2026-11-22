@@ -168,6 +168,10 @@ Two guards exist because of it. The judge is wired explicitly in `_judge_llm` ra
 
 Answer relevancy at 0.633 is the weakest of the three scores and it stays in Known Limitations rather than being explained away.
 
+## Failure Modes
+
+[docs/failure-modes.md](docs/failure-modes.md) covers how each dependency fails, which tracer can actually see it, and what to do. It is written against the current node names and schema rather than from memory.
+
 ## Known Limitations
 
 - Context window: retrieves top-8 chunks per question; multi-part questions spanning many publications may miss relevant context.
