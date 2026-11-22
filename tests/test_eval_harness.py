@@ -195,3 +195,54 @@ def _cov(per_question):
     from taxcite.eval_harness import _score_coverage
 
     return _score_coverage(per_question)
+
+
+def _judge_response(usage_metadata=None, llm_output=None):
+    """An LLMResult-shaped stand-in. SimpleNamespace rather than a class so the
+    fixtures carry no mutable class attributes."""
+    from types import SimpleNamespace
+
+    generations = []
+    if usage_metadata is not None:
+        message = SimpleNamespace(usage_metadata=usage_metadata)
+        generations = [[SimpleNamespace(message=message)]]
+    return SimpleNamespace(generations=generations, llm_output=llm_output)
+
+
+def test_judge_call_cost_prices_usage_metadata():
+    from taxcite import cost
+    from taxcite.eval_harness import judge_call_cost
+
+    response = _judge_response(usage_metadata={"input_tokens": 1000, "output_tokens": 200})
+    expected = (
+        1000 * cost.ANTHROPIC_INPUT_COST_PER_TOKEN
+        + 200 * cost.ANTHROPIC_OUTPUT_COST_PER_TOKEN
+    )
+    assert judge_call_cost(response) == expected
+
+
+def test_judge_call_cost_falls_back_to_llm_output_and_legacy_names():
+    from taxcite import cost
+    from taxcite.eval_harness import judge_call_cost
+
+    response = _judge_response(
+        llm_output={"usage": {"prompt_tokens": 10, "completion_tokens": 5}}
+    )
+    expected = (
+        10 * cost.ANTHROPIC_INPUT_COST_PER_TOKEN
+        + 5 * cost.ANTHROPIC_OUTPUT_COST_PER_TOKEN
+    )
+    assert judge_call_cost(response) == expected
+
+
+def test_judge_call_cost_raises_rather_than_pricing_an_unknown_shape():
+    import pytest
+
+    from taxcite import cost
+    from taxcite.eval_harness import judge_call_cost
+
+    with pytest.raises(cost.CostBudgetExceeded, match="no token usage"):
+        judge_call_cost(_judge_response(llm_output={}))
+
+    with pytest.raises(cost.CostBudgetExceeded, match="no recognised token counts"):
+        judge_call_cost(_judge_response(llm_output={"usage": {"tokens_in": 1, "tokens_out": 2}}))
