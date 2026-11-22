@@ -301,25 +301,18 @@ def test_judge_finished_prefers_generation_info_when_present():
 def test_judge_cost_cap_raises_rather_than_logging():
     """langchain_core defaults BaseCallbackHandler.raise_error to False and only
     re-raises when it is True, so a cap that does not set it is a log line
-    rather than a ceiling. This pins the attribute and the behaviour."""
-    import os
-
-    os.environ.setdefault("ANTHROPIC_API_KEY", "test-key")
+    rather than a ceiling. Imported directly: _judge_llm needs langchain_anthropic
+    from the eval extra, which the default CI sync does not install."""
+    import pytest
     from langchain_core.callbacks.manager import handle_event
 
-    from taxcite.eval_harness import _judge_llm
+    from taxcite.eval_harness import JudgeCostCap
 
-    handler = next(
-        h for h in _judge_llm().langchain_llm.callbacks
-        if type(h).__name__ == "_JudgeCostCap"
-    )
-    assert handler.raise_error is True
+    assert JudgeCostCap.raise_error is True
 
-    class _Boom(type(handler)):
+    class _Boom(JudgeCostCap):
         def on_llm_end(self, response, **_kwargs):
             raise RuntimeError("cap tripped")
-
-    import pytest
 
     with pytest.raises(RuntimeError, match="cap tripped"):
         handle_event([_Boom()], "on_llm_end", None, None)

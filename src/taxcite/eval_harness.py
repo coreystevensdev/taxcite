@@ -20,6 +20,8 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 
+from langchain_core.callbacks import BaseCallbackHandler
+
 from taxcite import cost
 from taxcite.embed import EMBED_MODEL
 
@@ -154,6 +156,28 @@ def judge_finished(response) -> bool:
     return True
 
 
+class JudgeCostCap(BaseCallbackHandler):
+    """Prices each judge call and stops the run when the cap trips.
+
+    raise_error matters more than it looks. langchain_core defaults it to False
+    (callbacks/base.py) and only re-raises when it is True (manager.py), so
+    without it a raising on_llm_end is logged and execution continues: the cap
+    becomes a log line rather than a ceiling. The first failed run showed
+    exactly that, twelve trips and a run that finished anyway.
+    """
+
+    raise_error = True
+
+    def on_llm_end(self, response, **_kwargs) -> None:
+        decision = cost.judge_cap.evaluate(judge_call_cost(response))
+        if not decision.allowed:
+            raise cost.CostBudgetExceeded(
+                f"judge blocked by cost cap ({decision.trip}): "
+                f"${decision.observed:.6f} observed, "
+                f"${decision.monthly_spend:.4f} monthly"
+            )
+
+
 def _judge_llm():
     """Claude as the judge, rather than whatever Ragas reaches for by default.
 
@@ -162,24 +186,7 @@ def _judge_llm():
     whole reason the judge is passed in explicitly.
     """
     from langchain_anthropic import ChatAnthropic
-    from langchain_core.callbacks import BaseCallbackHandler
     from ragas.llms import LangchainLLMWrapper
-
-    class _JudgeCostCap(BaseCallbackHandler):
-        # Without this, langchain_core logs the exception and carries on:
-        # callbacks/base.py defaults raise_error to False and manager.py only
-        # re-raises when it is True. The cap would be a log line, not a ceiling,
-        # which is the opposite of what it is for.
-        raise_error = True
-
-        def on_llm_end(self, response, **_kwargs) -> None:
-            decision = cost.judge_cap.evaluate(judge_call_cost(response))
-            if not decision.allowed:
-                raise cost.CostBudgetExceeded(
-                    f"judge blocked by cost cap ({decision.trip}): "
-                    f"${decision.observed:.6f} observed, "
-                    f"${decision.monthly_spend:.4f} monthly"
-                )
 
     return LangchainLLMWrapper(
         is_finished_parser=judge_finished,
@@ -187,7 +194,7 @@ def _judge_llm():
             model=os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
             temperature=0,
             max_tokens=8192,
-            callbacks=[_JudgeCostCap()],
+            callbacks=[JudgeCostCap()],
         )
     )
 
