@@ -3,9 +3,17 @@
 # So it runs weekly instead, and opens an issue when a score drops rather than
 # failing into a log nobody reads.
 #
-# It needs ANTHROPIC_API_KEY and VOYAGE_API_KEY as repository secrets. Neither
-# exists yet, and the guard below skips the run with a clear message rather than
-# failing every Monday until they do.
+# It needs ANTHROPIC_API_KEY and VOYAGE_API_KEY as repository secrets, both set
+# as of 2026-11-21. The guard below stays because a rotated or removed key should
+# skip with a clear message rather than fail every Monday until someone notices.
+#
+# Cost is not a fixed figure the way invoiceflow's is. cost.py caps this repo's
+# own calls per month (embed $2, rerank $2, generation $8) but those ledgers live
+# in process, so a fresh runner starts each run at zero and the caps bound one run
+# rather than a month. The Ragas judge is not covered at all: eval_harness.py
+# never imports cost, and its ChatAnthropic judge runs at max_tokens=8192 across
+# three metrics over 50 questions. Watch the first few runs before trusting a
+# number here.
 
 name: Weekly eval
 
@@ -89,7 +97,7 @@ jobs:
           uv sync --locked --extra dev --extra eval
 
       - name: Ingest the pinned corpus
-        run: python -m taxcite ingest
+        run: uv run --frozen python -m taxcite ingest
 
       - name: Run the Ragas eval
         run: uv run --frozen python -m taxcite eval --out eval/weekly-report.json
