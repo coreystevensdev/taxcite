@@ -46,6 +46,31 @@ def test_one_key_alone_is_not_live(client, monkeypatch):
     assert client.get("/status").json()["answering"] == "not_configured"
 
 
+def test_status_says_no_credits_once_a_generation_was_refused_on_balance(client, monkeypatch):
+    """Key presence cannot tell a configured deployment from a funded one.
+
+    On 2026-11-22 the balance hit zero, every answer 500'd, and this endpoint
+    reported "live" the whole time, because all it checked was that the keys
+    were set. It reports what the last generation actually got back now.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("VOYAGE_API_KEY", "pa-test")
+    from taxcite import server
+
+    monkeypatch.setitem(server._billing, "blocked", True)
+
+    assert client.get("/status").json()["answering"] == "no_credits"
+
+
+def test_no_credits_outranks_nothing_when_the_keys_are_gone(client, monkeypatch):
+    """An unconfigured deployment is unconfigured whatever the last call did."""
+    from taxcite import server
+
+    monkeypatch.setitem(server._billing, "blocked", True)
+
+    assert client.get("/status").json()["answering"] == "not_configured"
+
+
 def test_the_recorded_answers_carry_citations(client):
     """What the fallback serves. An answer without the publication it came from
     is not what this product claims to do."""
