@@ -120,6 +120,37 @@ def judge_call_cost(response) -> float:
     )
 
 
+def judge_finished(response) -> bool:
+    """Whether every generation in a judge response actually completed.
+
+    ragas 0.4's default parser reads `response_metadata["finish_reason"]` and
+    checks it against OpenAI's vocabulary, ["stop", "STOP", "MAX_TOKENS",
+    "eos_token"]. Its Anthropic branch, which does accept "end_turn", is an
+    `elif` reached only when finish_reason is absent. langchain-anthropic 1.7
+    sets both keys to Anthropic's own value, so the OpenAI check runs, fails,
+    and the Anthropic branch never executes. Every judge call then raised
+    LLMDidNotFinishException("...increase the max_tokens...") and a whole run
+    scored 0 of 50 on all three metrics, which is what happened on the first
+    armed run.
+
+    "max_tokens", Anthropic's genuinely-truncated reason, is deliberately not
+    accepted. That is the case the check exists for.
+    """
+    finished = {"stop", "STOP", "MAX_TOKENS", "eos_token", "end_turn"}
+    for flat in response.flatten():
+        generation = flat.generations[0][0]
+        info = generation.generation_info or {}
+        metadata = getattr(getattr(generation, "message", None), "response_metadata", None) or {}
+        reason = (
+            info.get("finish_reason")
+            or metadata.get("finish_reason")
+            or metadata.get("stop_reason")
+        )
+        if reason is not None and reason not in finished:
+            return False
+    return True
+
+
 def _judge_llm():
     """Claude as the judge, rather than whatever Ragas reaches for by default.
 
@@ -142,7 +173,8 @@ def _judge_llm():
                 )
 
     return LangchainLLMWrapper(
-        ChatAnthropic(
+        is_finished_parser=judge_finished,
+        langchain_llm=ChatAnthropic(
             model=os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
             temperature=0,
             max_tokens=8192,
