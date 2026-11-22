@@ -50,6 +50,24 @@ generation_cap = CostCap(
 )
 
 
+# A fourth workload, and until now the only uncapped one. The Ragas judge runs a
+# different call shape from generation (one prompt per metric per question, and
+# context_precision judges each retrieved chunk), so it needs its own window for
+# the reason the three above do: a shared rolling median would describe neither.
+#
+# The budget is a ceiling, not a measurement. No armed run has been completed, so
+# this is set high enough that the first one finishes and reports what a run
+# actually costs, and low enough that a loop cannot quietly spend the month.
+# Lower it once there is a figure.
+judge_cap = CostCap(
+    multiplier=3.0,
+    window=50,
+    min_samples=5,
+    absolute_ceiling=0.25,
+    monthly_budget=25.00,
+)
+
+
 class CostBudgetExceeded(RuntimeError):
     pass
 

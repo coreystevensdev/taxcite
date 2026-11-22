@@ -20,6 +20,7 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 
+from taxcite import cost
 from taxcite.embed import EMBED_MODEL
 
 DEFAULT_DATASET = Path(__file__).parent.parent.parent / "eval" / "dataset.jsonl"
@@ -84,6 +85,41 @@ def _score_with_ragas(records: list[dict]):
     )
 
 
+def judge_call_cost(response) -> float:
+    """Dollar cost of one judge response.
+
+    Ragas drives the judge through LangChain, so usage lives on the message
+    rather than on an Anthropic response object, and the key names differ by
+    version. Raises when it finds none: an unpriced call is an uncapped one,
+    which is the thing this exists to stop.
+    """
+    usage = None
+    for generation_list in getattr(response, "generations", None) or []:
+        for generation in generation_list:
+            usage = getattr(getattr(generation, "message", None), "usage_metadata", None)
+            if usage:
+                break
+        if usage:
+            break
+    if not usage:
+        usage = (getattr(response, "llm_output", None) or {}).get("usage")
+    if not usage:
+        raise cost.CostBudgetExceeded(
+            "judge response carried no token usage, so its cost cannot be bounded"
+        )
+
+    read = lambda *names: next((usage[n] for n in names if n in usage), None)
+    sent, produced = read("input_tokens", "prompt_tokens"), read("output_tokens", "completion_tokens")
+    if sent is None or produced is None:
+        raise cost.CostBudgetExceeded(
+            f"judge usage has no recognised token counts: {sorted(usage)}"
+        )
+    return (
+        sent * cost.ANTHROPIC_INPUT_COST_PER_TOKEN
+        + produced * cost.ANTHROPIC_OUTPUT_COST_PER_TOKEN
+    )
+
+
 def _judge_llm():
     """Claude as the judge, rather than whatever Ragas reaches for by default.
 
@@ -92,13 +128,25 @@ def _judge_llm():
     whole reason the judge is passed in explicitly.
     """
     from langchain_anthropic import ChatAnthropic
+    from langchain_core.callbacks import BaseCallbackHandler
     from ragas.llms import LangchainLLMWrapper
+
+    class _JudgeCostCap(BaseCallbackHandler):
+        def on_llm_end(self, response, **_kwargs) -> None:
+            decision = cost.judge_cap.evaluate(judge_call_cost(response))
+            if not decision.allowed:
+                raise cost.CostBudgetExceeded(
+                    f"judge blocked by cost cap ({decision.trip}): "
+                    f"${decision.observed:.6f} observed, "
+                    f"${decision.monthly_spend:.4f} monthly"
+                )
 
     return LangchainLLMWrapper(
         ChatAnthropic(
             model=os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
             temperature=0,
             max_tokens=8192,
+            callbacks=[_JudgeCostCap()],
         )
     )
 

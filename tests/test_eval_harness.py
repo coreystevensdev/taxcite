@@ -195,3 +195,54 @@ def _cov(per_question):
     from taxcite.eval_harness import _score_coverage
 
     return _score_coverage(per_question)
+
+
+def test_judge_call_cost_prices_usage_metadata():
+    from taxcite import cost
+    from taxcite.eval_harness import judge_call_cost
+
+    class _Msg:
+        usage_metadata = {"input_tokens": 1000, "output_tokens": 200}
+
+    class _Gen:
+        message = _Msg()
+
+    class _Response:
+        generations = [[_Gen()]]
+        llm_output = None
+
+    expected = 1000 * cost.ANTHROPIC_INPUT_COST_PER_TOKEN + 200 * cost.ANTHROPIC_OUTPUT_COST_PER_TOKEN
+    assert judge_call_cost(_Response()) == expected
+
+
+def test_judge_call_cost_falls_back_to_llm_output_and_legacy_names():
+    from taxcite import cost
+    from taxcite.eval_harness import judge_call_cost
+
+    class _Response:
+        generations = []
+        llm_output = {"usage": {"prompt_tokens": 10, "completion_tokens": 5}}
+
+    expected = 10 * cost.ANTHROPIC_INPUT_COST_PER_TOKEN + 5 * cost.ANTHROPIC_OUTPUT_COST_PER_TOKEN
+    assert judge_call_cost(_Response()) == expected
+
+
+def test_judge_call_cost_raises_rather_than_pricing_an_unknown_shape():
+    import pytest
+
+    from taxcite import cost
+    from taxcite.eval_harness import judge_call_cost
+
+    class _NoUsage:
+        generations = []
+        llm_output = {}
+
+    with pytest.raises(cost.CostBudgetExceeded, match="no token usage"):
+        judge_call_cost(_NoUsage())
+
+    class _UnknownKeys:
+        generations = []
+        llm_output = {"usage": {"tokens_in": 1, "tokens_out": 2}}
+
+    with pytest.raises(cost.CostBudgetExceeded, match="no recognised token counts"):
+        judge_call_cost(_UnknownKeys())
