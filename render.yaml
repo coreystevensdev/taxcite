@@ -1,3 +1,14 @@
+# Not the deploy path. taxcite runs as a container on a shared t3.small bound to
+# 127.0.0.1:8085 behind Caddy; .github/workflows/deploy.yml is the real one.
+#
+# The buildCommand below also contradicts the current build. Dockerfile:30 says
+# "No extras", because installing the eval extra put ragas, datasets and the two
+# judge packages into a serving image that never calls them, and weekly-eval.yml
+# runs the eval on a GitHub runner instead. `pip install -e ".[eval]"` is the
+# thing that was deliberately stopped.
+#
+# The three env vars it declares are right, and that is the reason to keep the
+# file rather than delete it: it is a correct record of what a deployment needs.
 services:
   - type: web
     name: taxcite-api

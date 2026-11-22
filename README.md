@@ -78,7 +78,8 @@ cat eval/report.json
 | Agent | LangGraph StateGraph | Explicit state machine separates retrieval and generation; conditional routing is auditable |
 | Generation | Anthropic claude-sonnet-4-6 | Forced tool call enforces structured citation output |
 | Evaluation | Ragas faithfulness + answer_relevancy + context_precision | Standard RAG eval metrics; reproducible with `python -m taxcite eval` |
-| Observability | LangSmith traces via `@traceable` + LangGraph auto-instrumentation | Token costs, latency, state transitions, and raw Anthropic messages in one trace tree |
+| Observability, LLM | LangSmith traces via `@traceable` + LangGraph auto-instrumentation | Token costs, latency, state transitions, and raw Anthropic messages in one trace tree. The only place a per-node failure is visible |
+| Observability, HTTP | OpenTelemetry OTLP + `FastAPIInstrumentor`, Jaeger in compose | One span per request, which LangSmith does not give. Complementary rather than redundant, and off unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set, which only resolves inside the compose stack |
 | API | FastAPI + uvicorn | Typed request/response schemas; easy local testing with TestClient |
 | PDF parsing | pdfplumber | Page-accurate text extraction with page-number tracking for citations |
 | Chunking | Custom overlap chunker | 1600-char target, one-paragraph overlap, page range tracking per chunk |
