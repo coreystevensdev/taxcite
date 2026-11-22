@@ -15,6 +15,7 @@ OPENAI_API_KEY nor RAGAS_LLM is read anywhere in this project.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from datetime import UTC, datetime
@@ -156,6 +157,9 @@ def judge_finished(response) -> bool:
     return True
 
 
+logger = logging.getLogger(__name__)
+
+
 class JudgeCostCap(BaseCallbackHandler):
     """Prices each judge call and stops the run when the cap trips.
 
@@ -170,6 +174,15 @@ class JudgeCostCap(BaseCallbackHandler):
 
     def on_llm_end(self, response, **_kwargs) -> None:
         decision = cost.judge_cap.evaluate(judge_call_cost(response))
+        # Every call, not only the blocked ones. The 2026-11-22 run recorded 24
+        # trips and nothing else, so the distribution they were outliers against
+        # had to be inferred, and the inference did not survive arithmetic.
+        logger.info(
+            "judge call $%.6f (median $%s, monthly $%.4f)",
+            decision.observed,
+            f"{decision.median:.6f}" if decision.median is not None else "none",
+            decision.monthly_spend,
+        )
         if not decision.allowed:
             raise cost.CostBudgetExceeded(
                 f"judge blocked by cost cap ({decision.trip}): "

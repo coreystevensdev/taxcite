@@ -52,25 +52,34 @@ generation_cap = CostCap(
 
 # The Ragas judge, which was the only uncapped spender until 2026-11-21.
 #
-# multiplier=8.0, not the 3.0 the three above use, and the reason is the same
-# one this file gives for splitting their windows: a rolling median only
-# calibrates to a homogeneous workload. The judge is not one. It runs a
-# different prompt per metric, and context_precision judges a single retrieved
-# chunk while faithfulness judges a whole answer, so one window mixes call
-# shapes that differ several-fold.
+# The median layer is deliberately inert here, and multiplier=50 is how that is
+# spelled: CostCap has no off switch, so the number is chosen to sit above the
+# $0.25 per-call ceiling for any median this workload produces. At a median of
+# $0.006, the lowest the 2026-11-22 run implies, 50x is $0.30 and the ceiling
+# governs instead. It comes back to life only if the median falls under $0.005.
 #
-# Measured on the 2026-11-21 run rather than guessed: observed judge costs
-# ranged $0.0138 to $0.0621, a 4.5x spread, and at 3.0 the cap tripped 292
-# times and killed more than half the calls, leaving faithfulness at 22 of 50
-# and the run unpublishable. Every one of those trips was the median layer;
-# neither fixed layer fired. fairline's generation cap is 8.0 for the same
-# arithmetic, with the same 4.5x figure in its own comment.
+# Turning it off rather than tuning it, because this file's own argument for
+# giving embed, rerank and generation separate windows applies to the judge and
+# says the median cannot work here: it runs a different prompt per metric, and
+# context_precision judges a single retrieved chunk where faithfulness judges a
+# whole answer.
 #
-# The two fixed layers are what actually bound spend. That run reached $13.57
-# of judge spend before failing, so a completed run costs more than that and
-# the monthly budget stays at 25 until a full one reports a number.
+# Two runs measured that, rather than it being an argument from design. At 3.0
+# the cap tripped 292 times and left faithfulness at 22 of 50. At 8.0 it tripped
+# 24 times, every one a faithfulness-sized call between $0.0493 and $0.0618, and
+# left faithfulness at 45 of 50. For a $0.055 call to trip at 8x, the window
+# median has to be under $0.007, so the window is dominated by the cheap metric
+# and the expensive one reads as an anomaly against it. That gap is structural,
+# so no multiplier separates anomaly from metric: anything admitting faithfulness
+# is already past 8, and the cheap-call median drags the bar back under it.
+#
+# 45 of 50 is publishable (MIN_SCORE_COVERAGE is 0.9) and not promotable:
+# tests/test_eval_page.py holds the committed report to every question scored.
+#
+# The two fixed layers are what bound this workload, and the ceiling is already
+# 4x the largest judge call ever observed. A complete run costs about $6.22.
 judge_cap = CostCap(
-    multiplier=8.0,
+    multiplier=50.0,
     window=50,
     min_samples=5,
     absolute_ceiling=0.25,
