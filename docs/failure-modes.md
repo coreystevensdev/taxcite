@@ -172,20 +172,29 @@ README. Read the per-question scores, not only the means: the report keeps every
 question's own scores, which is what makes a retrieval change a paired comparison
 instead of two means that might differ by noise.
 
-**Before comparing anything, check provenance.** A run records `provenance` and
-`score_coverage`, and `eval/report.json` now carries both: the committed run is
-from 2026-11-22 at revision `8721f38`, scored by `claude-sonnet-4-6`, with all
-50 questions scored on all three metrics. So it is a usable baseline, which the
-2026-09-11 run it replaced was not, having predated both fields. Check the
-revision before attributing a difference to your change rather than assuming the
-committed run is current.
+**Before comparing anything, check provenance.** A run records `provenance`,
+`score_coverage` and `judge_cost`, and `eval/report.json` carries all three: the
+committed run is from 2026-11-22 at revision `9c1e98c`, scored by
+`claude-sonnet-4-6`, with all 50 questions scored on all three metrics and 655
+judge calls for $5.22. So it is a usable baseline on cost as well as quality,
+which the 2026-09-11 run it eventually replaced was not, having predated every
+one of those fields. Check the revision before attributing a difference to your
+change rather than assuming the committed run is current.
 
 **Publishable and promotable are different bars.** `MIN_SCORE_COVERAGE` is 0.9,
 so a run publishes with 45 of 50 scored, while `tests/test_eval_page.py` holds
 the committed report to every question scored, because a null renders as "n/a"
 and shrinks what the page claims to have measured. A run can clear the first and
-fail the second, and one did: the 2026-11-22 09:47 run is committed because it
-scored 50 of 50, and the 04:49 run before it is not.
+fail the second, and two did on 2026-11-22: the 04:49 run scored faithfulness
+45 of 50 and the 22:36 run 49 of 50, both publishable and neither promotable.
+
+The second of those is worth knowing about, because `check_coverage` calls a
+thin run transient in its own message and that is not always what it is. One
+question was lost to the judge writing `isn\'t` inside a JSON string, a legal
+escape in Python and JavaScript and not in JSON. `temperature` is 0, so ragas'
+three parse retries each received the identical invalid string. Repairing that
+escape before the parse is what made a 50 of 50 run reachable; retrying harder
+would not have.
 
 **Recovery:** roll the change back and re-run. If a change is worth keeping at a
 lower score, update the README's numbers and say why in the same commit.
