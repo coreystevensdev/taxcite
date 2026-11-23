@@ -46,13 +46,13 @@ The LangGraph state machine has five nodes with two conditional edges. `retrieve
 
 Ragas evaluation over 50 questions spanning all 14 ingested IRS publications, scoring faithfulness, answer relevancy, and context precision. Questions include numeric exact-match cases (dollar thresholds, age limits, percentages) and conceptual retrieval cases. Claude judges and Voyage embeds, so the eval needs no third provider; the judge's embedder is `voyage-3` while the agent retrieves with `voyage-3.5-lite`, same vendor and same 1024 dimensions but not the same model. Every question's own scores are kept in the report alongside the aggregate, which is what turns a retrieval change into a paired comparison rather than two means that might differ by noise.
 
-The run committed at `eval/report.json`, from 2026-11-22, scored by `claude-sonnet-4-6` at revision `8721f38` with every one of the 50 questions scored on all three metrics. It carries `provenance` and `score_coverage`, so it can be compared against a later run as a paired measurement, which the 2026-09-11 run it replaced could not.
+The run committed at `eval/report.json`, from 2026-11-22 at revision `9c1e98c`, scored by `claude-sonnet-4-6` with every one of the 50 questions scored on all three metrics. It carries `provenance`, `score_coverage` and `judge_cost`, so a later run can be compared against it on cost as well as on quality. The judge made 655 calls for $5.22, a median of $0.0061 each.
 
 | Metric | Score |
 |---|---|
-| Faithfulness | 0.958 |
-| Answer relevancy | 0.629 |
-| Context precision | 0.858 |
+| Faithfulness | 0.959 |
+| Answer relevancy | 0.646 |
+| Context precision | 0.865 |
 
 The corpus is pinned to a tax year, so these are measured against the publications the dataset was written against. Before pinning, `ingest` pulled whatever revision the IRS was currently serving: 7 of the 50 questions asked for 2024 figures the 2025 revisions do not contain, the agent correctly declined to state them, and Ragas scored those refusals as total misses. That alone was worth 0.759 against 0.857 on context precision and 0.911 against 0.945 on faithfulness, both measured on the September run that was the committed baseline at the time.
 
@@ -167,7 +167,7 @@ None of that was visible from reading the code, and none of it would have been c
 
 Two guards exist because of it. The judge is wired explicitly in `_judge_llm` rather than left to whatever Ragas reaches for, so scoring cannot silently fall back to a provider this project does not configure. And every question's own score is committed next to the aggregate in `eval/report.json`, which is what makes a retrieval change a paired comparison rather than two means that might differ by noise. Both runs behind the reranker comparison are committed too, so the run-to-run spread the argument rests on is a file rather than a claim.
 
-Answer relevancy at 0.629 is the weakest of the three scores and it stays in Known Limitations rather than being explained away.
+Answer relevancy at 0.646 is the weakest of the three scores and it stays in Known Limitations rather than being explained away.
 
 ## Failure Modes
 
@@ -179,7 +179,7 @@ Answer relevancy at 0.629 is the weakest of the three scores and it stays in Kno
 - No OCR: `pdfplumber` extracts digital text only; scanned pages (some older IRS pubs) are silently skipped.
 - Per-instance state: both the rate limiter and the HITL `MemorySaver` checkpointer are in-process. Interrupted threads are lost on restart and not shared across replicas; replace `MemorySaver` with `PostgresSaver` for production durability.
 - **The corpus is pinned to one tax year, and the dataset has to move with it.** `TAX_YEAR` in `manifest.py` selects which revision `ingest` fetches, from `pub/irs-prior` where publications are addressed by year, rather than `pub/irs-pdf` which always serves the current one. Changing it means rewriting the dataset's dollar figures to match; leaving them out of step scores correct refusals as failures, which is what happened before pinning. The report records `corpus_tax_year` and flags any question whose ground truth names a different one, so the two drifting apart is visible rather than looking like poor retrieval.
-- Answer relevancy at 0.629 is the weakest of the three metrics. Ragas scores it by generating questions from the answer and comparing them to the original, so verbose answers that cover more ground than was asked score lower.
+- Answer relevancy at 0.646 is the weakest of the three metrics. Ragas scores it by generating questions from the answer and comparing them to the original, so verbose answers that cover more ground than was asked score lower.
 - Column detection is a heuristic: it looks for a density trough in word coverage across the page. It falls back to single-column when it finds none, which is right for covers and full-width tables, but an unusual layout could still be split in the wrong place.
 - Publications are ingested as static snapshots; re-ingest when IRS revises a publication (annual cycle for most).
 - LangSmith tracing is opt-in, and it is the only path here that reaches a real advisory class. `LANGCHAIN_TRACING_V2` defaults to `false` in `docker-compose.yml`, so the deployed demo does not trace. With it `true`, the `@traceable` decorators in `embed.py`, `rerank.py` and `agent.py` send runs to LangSmith, and older SDK versions let streaming token events bypass output redaction. `pyproject.toml` pins `langsmith>=0.8.18` for that reason, so the path is patched rather than open. It is recorded here because it was the one advisory of thirteen that this project could actually reach: the rest name APIs it never calls (`load_prompt`, `ChatOpenAI`, `pull_prompt`, `TracingMiddleware`, `langgraph_sdk`, and an `HTMLHeaderTextSplitter` in a project that chunks its own PDFs), which is why a version-based scan overstated the exposure.
