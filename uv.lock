@@ -1310,14 +1310,14 @@ wheels = [
 
 [[package]]
 name = "langchain-text-splitters"
-version = "0.3.11"
+version = "1.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/11/43/dcda8fd25f0b19cb2835f2f6bb67f26ad58634f04ac2d8eae00526b0fa55/langchain_text_splitters-0.3.11.tar.gz", hash = "sha256:7a50a04ada9a133bbabb80731df7f6ddac51bc9f1b9cab7fa09304d71d38a6cc", size = 46458, upload-time = "2025-08-31T23:02:58.316Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/90/52/bf954839dd1ed651caaca7bd3f8e855d9cf86adf9e9a3b3d5805c6e1298d/langchain_text_splitters-1.2.0.tar.gz", hash = "sha256:b1910bc42bc4b708411f0df009b7f1b6fdcc96e52f0847f6a5a5c70deec4b91f", size = 270318, upload-time = "2026-11-23T16:11:27.511Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/58/0d/41a51b40d24ff0384ec4f7ab8dd3dcea8353c05c973836b5e289f1465d4f/langchain_text_splitters-0.3.11-py3-none-any.whl", hash = "sha256:cf079131166a487f1372c8ab5d0bfaa6c0a4291733d9c43a34a16ac9bcd6a393", size = 33845, upload-time = "2025-08-31T23:02:57.195Z" },
+    { url = "https://files.pythonhosted.org/packages/42/fa/fe89d3109248e51890bd7839ee24576728b4aed7deb61a9f7afe57d7f381/langchain_text_splitters-1.2.0-py3-none-any.whl", hash = "sha256:be4e5b288ee7cd5c20c47f540cb359732cb2c83980ce4bab34120f63d1e40f76", size = 38211, upload-time = "2026-11-23T16:11:26.483Z" },
 ]
 
 [[package]]
