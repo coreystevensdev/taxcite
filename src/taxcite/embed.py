@@ -5,6 +5,7 @@ import os
 
 import voyageai
 from langsmith import traceable
+from rolling_cost_cap import CostCap
 
 from taxcite import cost
 
@@ -26,8 +27,8 @@ def _get_client() -> voyageai.Client:
     return _client
 
 
-def _guard(total_tokens: int) -> None:
-    decision = cost.embed_cap.evaluate(total_tokens * cost.VOYAGE_COST_PER_TOKEN)
+def _guard(total_tokens: int, cap: CostCap) -> None:
+    decision = cap.evaluate(total_tokens * cost.VOYAGE_COST_PER_TOKEN)
     if not decision.allowed:
         raise cost.CostBudgetExceeded(
             f"embedding blocked by cost cap ({decision.trip}): "
@@ -42,7 +43,7 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     for i in range(0, len(texts), BATCH_SIZE):
         batch = texts[i : i + BATCH_SIZE]
         response = client.embed(batch, model=EMBED_MODEL, input_type="document")
-        _guard(response.total_tokens)
+        _guard(response.total_tokens, cost.embed_cap)
         result.extend(response.embeddings)
     return result
 
@@ -54,7 +55,7 @@ def embed_query(text: str) -> list[float]:
     """
     client = _get_client()
     response = client.embed([text], model=EMBED_MODEL, input_type="query")
-    _guard(response.total_tokens)
+    _guard(response.total_tokens, cost.query_embed_cap)
     if not response.embeddings:
         raise EmbeddingError("Voyage returned no embeddings for the query")
     return response.embeddings[0]

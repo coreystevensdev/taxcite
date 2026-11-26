@@ -88,8 +88,45 @@ def test_embed_query_raises_cost_budget_exceeded_when_cap_trips(mock_get_client)
     tripped.observed = 0.20
     tripped.monthly_spend = 0.20
 
-    with patch.object(cost.embed_cap, "evaluate", return_value=tripped):
+    # query_embed_cap, not embed_cap: embed_query stopped sharing the ingest cap
+    # because a batch of 128 chunks and one question have costs three orders of
+    # magnitude apart, so the shared rolling median described neither and killed
+    # the public demo on ordinary question length.
+    with patch.object(cost.query_embed_cap, "evaluate", return_value=tripped):
         from taxcite.embed import embed_query
 
         with pytest.raises(CostBudgetExceeded, match="absolute-ceiling"):
             embed_query("test")
+
+
+@patch("taxcite.embed._get_client")
+def test_embed_query_does_not_consult_the_ingest_cap(mock_get_client):
+    """The regression that killed the demo: a question long enough to exceed 3x
+    the median of recent short questions returned 503 after $0.0000024 of spend.
+    embed_query must not be judged against the window embed_texts fills."""
+    from taxcite import cost
+
+    client = MagicMock()
+    client.embed.return_value = _make_response([[0.1] * 1024], total_tokens=34)
+    mock_get_client.return_value = client
+
+    from taxcite.embed import embed_query
+
+    with patch.object(cost.embed_cap, "evaluate") as ingest_cap:
+        embed_query("a question long enough to be judged an anomaly by the old cap")
+
+    ingest_cap.assert_not_called()
+
+
+def test_query_cap_allows_a_question_several_times_the_running_median():
+    """Six short questions then a long one. Under the shared 3x cap this was the
+    exact sequence that returned 503; the query cap has to pass it."""
+    from taxcite import cost
+
+    per_token = cost.VOYAGE_COST_PER_TOKEN
+    for tokens in (8, 7, 9, 6, 8, 7):
+        assert cost.query_embed_cap.evaluate(tokens * per_token).allowed
+
+    # 34 tokens is about 4.5x the median of the six above
+    decision = cost.query_embed_cap.evaluate(34 * per_token)
+    assert decision.allowed, f"blocked via {decision.trip}"

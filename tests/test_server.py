@@ -183,6 +183,35 @@ class TestAsk:
             assert client.post("/ask", json={"question": "test question"}).status_code == 503
             assert client.get("/status").json()["answering"] == "no_credits"
 
+    def test_a_cap_trip_makes_status_say_capped(self):
+        # The 2026-11-25 outage: the embed cap tripped eight times, every /ask
+        # returned 503, and /status said "live" the whole way through because
+        # `answering` had no state for a cap. Asserting only the 503 is what let
+        # that ship, which is the same hole the credit test above closed.
+        from taxcite import server
+        from taxcite.cost import CostBudgetExceeded
+
+        server._billing["blocked"] = False
+        server._capped["tripped"] = False
+        mock = MagicMock()
+        mock.invoke.side_effect = CostBudgetExceeded("embedding blocked by cost cap")
+        with patch("taxcite.server._graph", mock):
+            client = TestClient(app)
+            assert client.post("/ask", json={"question": "test question"}).status_code == 503
+            assert client.get("/status").json()["answering"] == "capped"
+
+    def test_an_empty_balance_outranks_a_tripped_cap(self):
+        # Both flags can be set at once. Topping up an account and widening a
+        # cap are different remedies, and the empty balance blocks every call
+        # rather than one workload, so it has to win or a reader fixes the
+        # wrong thing.
+        from taxcite import server
+
+        server._billing["blocked"] = True
+        server._capped["tripped"] = True
+        client = TestClient(app)
+        assert client.get("/status").json()["answering"] == "no_credits"
+
     def test_a_working_generation_clears_the_credit_flag(self):
         # Otherwise the first refusal latches and /status reports no_credits
         # forever, which is the same defect as reporting live forever.
