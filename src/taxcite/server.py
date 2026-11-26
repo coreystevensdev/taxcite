@@ -39,6 +39,14 @@ _ingest: dict[str, object] = {"state": "idle"}
 # local that nothing reads.
 _billing: dict[str, bool] = {"blocked": False}
 
+# Set when a cost cap refuses a call, cleared by the next one that completes.
+# Separate from _billing because the two are different outages with the same
+# 503: a funded account whose cap has tripped is not an unfunded one, and the
+# remedies are opposite. /status reported "live" through eight cap trips on
+# 2026-11-25 because `answering` had no state for this, which is the exact
+# failure the comment above it warns about one outage earlier.
+_capped: dict[str, bool] = {"tripped": False}
+
 # Anthropic gives an exhausted balance no distinct error type or code: it is a
 # BadRequestError whose message names it. Matching the text is fragile, so a miss
 # falls through to the behaviour this had before rather than to a wrong answer.
@@ -229,6 +237,13 @@ def status() -> dict:
         # Observed, not probed: checking a balance costs a call, so this reports
         # what the last generation actually got back.
         answering = "no_credits"
+    elif _capped["tripped"]:
+        # After no_credits on purpose. Both can be set at once, and an exhausted
+        # balance outranks a tripped cap: it blocks every call rather than one
+        # workload, and topping up is a different remedy from widening a cap.
+        # Reporting the cap while the account is empty would send a reader to
+        # fix the wrong thing.
+        answering = "capped"
     else:
         answering = "live"
 
@@ -281,6 +296,7 @@ def ask(request: Request, req: AskRequest) -> AskCompleteResponse | AskAwaitingR
         _graph.invoke(initial, config=config)
     except CostBudgetExceeded as exc:
         # Log the spend detail; don't hand budget figures to an anonymous caller.
+        _capped["tripped"] = True
         logger.warning("Cost cap tripped for thread %s: %s", thread_id, exc)
         raise HTTPException(
             status_code=503,
@@ -308,6 +324,10 @@ def ask(request: Request, req: AskRequest) -> AskCompleteResponse | AskAwaitingR
         raise HTTPException(status_code=500, detail="Graph execution failed. Check server logs.") from exc
 
     _billing["blocked"] = False
+    # This path embedded the question, so the embed caps are demonstrably
+    # passing. Unlike the billing flag it is not claiming anything about
+    # Anthropic, which /ask never reaches.
+    _capped["tripped"] = False
     snapshot = _graph.get_state(config)
 
     if snapshot.next:
@@ -345,6 +365,7 @@ def ask_resume(request: Request, req: ResumeRequest) -> AskCompleteResponse:
     try:
         _graph.invoke(Command(resume=req.approved), config=config)
     except CostBudgetExceeded as exc:
+        _capped["tripped"] = True
         logger.warning("Cost cap tripped for thread %s: %s", req.thread_id, exc)
         raise HTTPException(
             status_code=503,
@@ -372,6 +393,7 @@ def ask_resume(request: Request, req: ResumeRequest) -> AskCompleteResponse:
         raise HTTPException(status_code=500, detail="Graph resume failed. Check server logs.") from exc
 
     _billing["blocked"] = False
+    _capped["tripped"] = False
     values = _graph.get_state(config).values
     return AskCompleteResponse(
         answer=values.get("answer", ""),

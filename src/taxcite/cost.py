@@ -41,6 +41,31 @@ rerank_cap = CostCap(
     monthly_budget=2.00,
 )
 
+# embed_texts batches up to 128 chunks; embed_query embeds one question. The two
+# costs differ by about three orders of magnitude, so a shared rolling median
+# describes neither, which is the same reason rerank_cap has its own window.
+#
+# Sharing it did more than blur the median, it killed the public demo. In steady
+# state the window fills with query costs and the median settles near
+# $0.00000015 (an 8-token suggested question). A visitor then types a 34-token
+# question costing $0.00000068, which is 4.5x the median, trips the 3x
+# multiplier, and returns 503. Total spend at that point was $0.0000024 against
+# a $2.00 budget, so nothing was overspent; the anomaly detector was reading
+# ordinary question length as an anomaly.
+#
+# The rolling-median layer is deliberately inert here. Question length varies by
+# an order of magnitude between legitimate questions, so any multiplier tight
+# enough to catch a real spike is too tight for this workload. The absolute
+# ceiling is the guard that means something: $0.0005 is 25,000 tokens, which no
+# question is, and a pasted document hits it immediately.
+query_embed_cap = CostCap(
+    multiplier=1_000.0,
+    window=50,
+    min_samples=5,
+    absolute_ceiling=0.0005,
+    monthly_budget=1.00,
+)
+
 generation_cap = CostCap(
     multiplier=3.0,
     window=50,
